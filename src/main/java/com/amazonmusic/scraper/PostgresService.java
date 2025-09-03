@@ -135,15 +135,26 @@ public class PostgresService implements PostgresServiceInterface {
      * @return EmbeddedPostgres instance
      */
     public static EmbeddedPostgres startEmbedded(String dataDir) {
+        return startEmbedded(dataDir, 5432);
+    }
+
+    /**
+     * Starts an embedded PostgreSQL instance on a specific port for local use and returns it.
+     * @param dataDir directory under which to store DB data
+     * @param port port number for the Postgres server
+     * @return EmbeddedPostgres instance
+     */
+    public static EmbeddedPostgres startEmbedded(String dataDir, int port) {
         try {
             EmbeddedPostgres postgres = EmbeddedPostgres.builder()
                 .setDataDirectory(Paths.get(dataDir))
                 .setCleanDataDirectory(false)
+                .setPort(port)
                 .start();
-            logger.info("Embedded PostgreSQL started at {}", dataDir);
+            logger.info("Embedded PostgreSQL started at {} on port {}", dataDir, port);
             return postgres;
         } catch (Exception e) {
-            logger.error("Failed to start embedded PostgreSQL: {}", e.getMessage());
+            logger.error("Failed to start embedded PostgreSQL on port {}: {}", port, e.getMessage());
             throw new RuntimeException(e);
         }
     }

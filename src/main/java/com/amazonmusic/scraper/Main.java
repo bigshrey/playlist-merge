@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.Path;
 
 /**
  * Main entry point for the Amazon Music playlist scraper.
@@ -188,6 +191,50 @@ public class Main {
             // Ensure debug env vars are present so debug artifacts are saved during development runs
             setEnvVarsAtStartup();
 
+            // determine mode: args or interactive prompt
+            String mode = (args != null && args.length > 0) ? args[0].trim().toLowerCase() : "";
+            if (mode.isBlank()) {
+                System.out.println("Choose mode:\n  1) db  - start embedded Postgres only\n  2) scrape - run scraping workflow\nEnter choice (db/scrape) or press Enter for 'scrape': ");
+                try {
+                    java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(System.in));
+                    String input = br.readLine();
+                    if (input != null) mode = input.trim().toLowerCase();
+                    if (mode.isBlank()) mode = "scrape";
+                } catch (Exception e) {
+                    mode = "scrape";
+                }
+            }
+
+            // determine embedded Postgres port (allow override via env or system property)
+            String portStr = System.getProperty("EMBEDDED_PG_PORT", System.getenv().getOrDefault("EMBEDDED_PG_PORT", "5432"));
+            int embeddedPort = 5432;
+            try { embeddedPort = Integer.parseInt(portStr); } catch (Exception ignored) {}
+            String pgDataDir = System.getProperty("EMBEDDED_PG_DATA_DIR", "scraped-data/pgdata");
+
+            if (mode.equals("db") || mode.equals("1") || mode.equals("db-only") || mode.equals("database")) {
+                // start embedded DB and allow user to inspect
+                try {
+                    postgres = PostgresService.startEmbedded(pgDataDir, embeddedPort);
+                    // write IntelliJ datasource files so the IDE recognises this DB automatically
+                    writeIntelliJDataSource(embeddedPort, pgDataDir);
+                    PostgresServiceInterface postgresService = createPostgresService(postgres);
+                    String jdbc = String.format("jdbc:postgresql://localhost:%d/postgres", embeddedPort);
+                    System.out.println("Embedded Postgres started.");
+                    System.out.println("JDBC URL: " + jdbc);
+                    System.out.println("DB user: postgres");
+                    System.out.println("DB password: postgres");
+                    System.out.println("Data directory: scraped-data/pgdata");
+                    System.out.println("The DB will keep running until you press Enter. Connect with your DB client to inspect data.");
+                    System.out.println("Press Enter to stop the embedded DB and exit.");
+                    try { System.in.read(); } catch (Exception ignored) {}
+                    return;
+                } catch (Exception e) {
+                    logger.error("Failed to start embedded Postgres in db-only mode: {}", e.getMessage());
+                    throw e;
+                }
+            }
+
+            // Default: run full scraping workflow
             // instantiate services at runtime for DI and testability (typed to interfaces)
             AuthServiceInterface authService = new AuthService();
             ScraperServiceInterface scraperService = new ScraperService(authService);
@@ -195,7 +242,9 @@ public class Main {
 
             // initialize helpers and ensure artifact dirs
             authService.init();
-            postgres = PostgresService.startEmbedded("scraped-data/pgdata");
+            postgres = PostgresService.startEmbedded(pgDataDir, embeddedPort);
+            // write IntelliJ datasource files so the IDE recognises this DB automatically
+            writeIntelliJDataSource(embeddedPort, pgDataDir);
             PostgresServiceInterface postgresService = createPostgresService(postgres);
 
             try (Playwright playwright = Playwright.create()) {
@@ -209,7 +258,7 @@ public class Main {
                 logger.error("Stack trace: {}", java.util.Arrays.toString(e.getStackTrace()));
             }
         } catch (Exception e) {
-            logger.error("Failed to start embedded PostgreSQL: {}", e.getMessage());
+            logger.error("Failed to start embedded PostgreSQL or run scraper: {}", e.getMessage());
         } finally {
             if (postgres != null) {
                 try {
@@ -219,6 +268,30 @@ public class Main {
                     logger.warn("Failed to stop embedded PostgreSQL: {}", e.getMessage());
                 }
             }
+        }
+    }
+
+    // Write IntelliJ IDEA Data Source config files (.idea/dataSources.xml and dataSources.local.xml)
+    private static void writeIntelliJDataSource(int port, String dataDir) {
+        try {
+            Path idea = Paths.get(".idea");
+            if (!Files.exists(idea)) Files.createDirectories(idea);
+            String jdbc = String.format("jdbc:postgresql://localhost:%d/postgres", port);
+            String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                    "<data-sources version=\"21\">\n" +
+                    "  <data-source>\n" +
+                    "    <name>Embedded Postgres (playlist-merge)</name>\n" +
+                    "    <driver-ref>PostgreSQL</driver-ref>\n" +
+                    "    <url>" + jdbc + "</url>\n" +
+                    "    <user>postgres</user>\n" +
+                    "    <password>postgres</password>\n" +
+                    "  </data-source>\n" +
+                    "</data-sources>\n";
+            Files.writeString(idea.resolve("dataSources.xml"), xml);
+            Files.writeString(idea.resolve("dataSources.local.xml"), xml);
+            System.out.println("Wrote .idea/dataSources.xml and dataSources.local.xml for IntelliJ Database tool.");
+        } catch (Exception e) {
+            logger.warn("Failed to write IntelliJ data source files: {}", e.getMessage());
         }
     }
 }
