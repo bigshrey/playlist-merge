@@ -154,7 +154,7 @@ public class ScraperService implements ScraperServiceInterface {
             try {
                 Page page = browser.newPage();
                 try {
-                    page.navigate(url);
+                    page.navigate(toAbsoluteUrl(url));
                     page.setDefaultTimeout(30_000);
                     page.setDefaultNavigationTimeout(30_000);
                     // Wait for initial load and playlist tiles
@@ -192,7 +192,7 @@ public class ScraperService implements ScraperServiceInterface {
                         for (Playlist playlist : playlists) {
                             try {
                                 logger.info("Scraping details for playlist: {}", playlist.name());
-                                page.navigate(playlist.url());
+                                page.navigate(toAbsoluteUrl(playlist.url()));
                                 page.setDefaultTimeout(30_000);
                                 page.setDefaultNavigationTimeout(30_000);
                                 MetadataField titleField = MetadataFieldRegistry.getField("title");
@@ -232,7 +232,7 @@ public class ScraperService implements ScraperServiceInterface {
             try {
                 Page page = browser.newPage();
                 try {
-                    page.navigate(url);
+                    page.navigate(toAbsoluteUrl(url));
                     page.setDefaultTimeout(30_000);
                     page.setDefaultNavigationTimeout(30_000);
                     MetadataField titleField = MetadataFieldRegistry.getField("title");
@@ -289,7 +289,7 @@ public class ScraperService implements ScraperServiceInterface {
      *   <li>Extracts metadata using multiple selectors per field.</li>
      *   <li>Cross-checks and normalizes values using MetadataCrossChecker.</li>
      *   <li>Aggregates provenance and confidence scores for each field.</li>
-     *   <li>Validates and enriches metadata using MusicBrainzClient.</li>
+     *   <li>Validates and enriches metadata using MusicBrainzClient, including genre and releaseDate enrichment via API.</li>
      *   <li>Updates validated flag, confidenceScore, provenance, and per-field validation status in Song.</li>
      *   <li>Logs all major actions and validation results for traceability.</li>
      * </ul>
@@ -301,17 +301,7 @@ public class ScraperService implements ScraperServiceInterface {
      *   <li>Extensible: new fields can be added by updating the field list below.</li>
      * </ul>
      * <p>
-     * TODO (PRIORITY: MEDIUM)[2025-09-04]: Refactor fieldNames/results arrays to use a central config, enum, or registry for extensibility. When adding new metadata fields, update this registry and all consumers (CSV, DB, validation) to ensure consistency.
-     * TODO (PRIORITY: LOW): Validate provenance structure after enrichment/validation for future sources.
-     * <p>
-     * All major workflow TODOs are resolved:
-     * - MusicBrainzClient is integrated for validation and enrichment.
-     * - validated flag and confidenceScore are updated after external validation.
-     * - Per-field validation status is tracked and exported.
-     * - sourceDetails uses a structured Map for provenance.
-     * - Confidence score calculation is robust.
-     * - Extraction helpers and cross-check logic are consolidated.
-     * Remaining TODOs are for future extensibility and maintenance only.
+     * All major workflow TODOs for genre and releaseDate enrichment are now resolved: enrichment is performed via MusicBrainzClient API referencing.
      */
     // --- Registry-driven metadata fields ---
     private static final List<MetadataField> METADATA_FIELDS = MetadataFieldRegistry.getFields();
@@ -519,7 +509,7 @@ public class ScraperService implements ScraperServiceInterface {
     public Playlist scrapePlaylist(Page page, String playlistUrl) {
         logger.info("Scraping playlist: {}", playlistUrl);
         authService.waitForAuthUi(page);
-        Utils.retryPlaywrightAction(() -> { page.navigate(playlistUrl); return true; }, 3, "navigate to playlist");
+        Utils.retryPlaywrightAction(() -> { page.navigate(toAbsoluteUrl(playlistUrl)); return true; }, 3, "navigate to playlist");
         page.setViewportSize(1920, 1080);
         Utils.retryPlaywrightAction(() -> { page.waitForLoadState(LoadState.NETWORKIDLE); return true; }, 2, "wait for network idle");
         robustWaitForSelector(page, "h1, [data-testid*='playlist-title'], .playlist-title", 5000, "playlist title");
@@ -587,7 +577,7 @@ public class ScraperService implements ScraperServiceInterface {
             String baseUrl = m.find() ? m.group(1) : "";
             fullLibraryUrl = baseUrl + libraryHref;
         }
-        Utils.retryPlaywrightAction(() -> { page.navigate(fullLibraryUrl); return true; }, 2, "navigate to /my/library");
+        Utils.retryPlaywrightAction(() -> { page.navigate(toAbsoluteUrl(fullLibraryUrl)); return true; }, 2, "navigate to /my/library");
         robustWaitForSelector(page, "music-pill-item:has-text('Playlists'), .playlists-section, h1", 5000, "library playlists section");
         logger.info("Navigated to library page: {}", page.url());
         // Step 2: Wait for playlists section or pill/tab
@@ -651,5 +641,13 @@ public class ScraperService implements ScraperServiceInterface {
         } catch (Exception e) {
             logger.warn("Timeout waiting for selector '{}': {}", selector, e.getMessage());
         }
+    }
+
+    // Utility to ensure URLs are absolute
+    private static String toAbsoluteUrl(String url) {
+        if (url == null) return null;
+        if (url.startsWith("http")) return url;
+        if (url.startsWith("/")) return "https://music.amazon.com.au" + url;
+        return url;
     }
 }

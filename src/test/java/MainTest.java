@@ -17,29 +17,34 @@ import java.util.concurrent.Callable;
 public class MainTest {
     @Test
     public void testSanitizeFilename() {
-        String input = "my:invalid/file*name?.csv";
-        String expected = "my_invalid_file_name_.csv";
+        String input = "My Playlist Name: *?<>|/";
         String actual = Utils.sanitizeFilename(input);
-        Assertions.assertEquals(expected, actual);
+        Assertions.assertEquals("My_Playlist_Name_", actual);
     }
     @Test
     public void testWriteSongsToCSV() throws IOException, CsvException {
         List<Song> songs = Arrays.asList(
-            new Song("Title1", "Artist1", "Album1", "URL1", null, null, null, null, null, null, null, null, false, 1.0, java.util.Map.of()),
-            new Song("Title2", "Artist2", "Album2", "URL2", null, null, null, null, null, null, null, null, false, 1.0, java.util.Map.of())
+            new Song("Title1", "Artist1", "Album1", "URL1", null, null, null, null, null, null, null, null, false, 1.0, java.util.Map.of(), java.util.Map.of()),
+            new Song("Title2", "Artist2", "Album2", "URL2", null, null, null, null, null, null, null, null, false, 1.0, java.util.Map.of(), java.util.Map.of())
         );
         String filename = "test_songs.csv";
         CsvService csvService = new CsvService();
         csvService.writeSongsToCSV(songs, filename);
 
-        try (CSVReader reader = new CSVReader(new FileReader(filename))) {
+        try (CSVReader reader = new CSVReader(new FileReader("scraped-data/" + filename))) {
             List<String[]> lines = reader.readAll();
-            Assertions.assertArrayEquals(new String[]{"Title", "Artist", "Album", "URL"}, lines.get(0));
-            Assertions.assertArrayEquals(new String[]{"Title1", "Artist1", "Album1", "URL1"}, lines.get(1));
-            Assertions.assertArrayEquals(new String[]{"Title2", "Artist2", "Album2", "URL2"}, lines.get(2));
+            Assertions.assertArrayEquals(new String[]{
+                "Title", "Artist", "Album", "URL", "Duration", "TrackNumber", "PlaylistPosition", "Explicit", "ImageURL", "ReleaseDate", "Genre", "TrackASIN", "Validated", "ConfidenceScore", "SourceDetails", "FieldValidationStatus"
+            }, lines.get(0));
+            Assertions.assertArrayEquals(new String[]{
+                "Title1", "Artist1", "Album1", "URL1", "", "", "", "", "", "", "", "", "false", "1.0", "{}", "{}"
+            }, lines.get(1));
+            Assertions.assertArrayEquals(new String[]{
+                "Title2", "Artist2", "Album2", "URL2", "", "", "", "", "", "", "", "", "false", "1.0", "{}", "{}"
+            }, lines.get(2));
         }
 
-        Files.deleteIfExists(Path.of(filename));
+        Files.deleteIfExists(Path.of("scraped-data/" + filename));
     }
     @Test
     public void testRetryPlaywrightActionSuccessAfterRetries() {

@@ -390,6 +390,10 @@ public final class AuthService implements AuthServiceInterface {
      * @see #waitForAuthUi(Page) for UI-based detection logic
      */
     public boolean isAuthenticated(Page page) {
+        if (page == null) {
+            logger.warn("isAuthenticated called with null page. Returning false.");
+            return false;
+        }
         // Check for session/auth cookies
         List<String> authCookieNames = java.util.Arrays.asList("at-main", "sess-at-main", "x-main", "at-acb", "sess-at-acb");
         boolean hasAuthCookie = false;

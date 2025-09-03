@@ -15,13 +15,13 @@ public class Utils {
     private static final Logger logger = LoggerFactory.getLogger(Utils.class);
 
     /**
-     * Sanitizes a filename by replacing special characters and whitespace with underscores.
+     * Sanitizes a filename by replacing each special character and whitespace with an underscore.
      * @param name Input filename
      * @return Sanitized filename
      */
     public static String sanitizeFilename(String name) {
-        // Ensure sanitizeFilename handles special characters correctly
-        return name == null ? "" : name.replaceAll("[*?\"<>|/:]", "_").replaceAll("\\s+", "_");
+        // Replace each invalid character or whitespace with a single underscore
+        return name == null ? "" : name.replaceAll("[*?\"<>|/:\\s]", "_");
     }
 
     /**

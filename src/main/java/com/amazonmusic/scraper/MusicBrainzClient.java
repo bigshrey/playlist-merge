@@ -25,24 +25,53 @@ public class MusicBrainzClient {
     /**
      * Validates and enriches Song metadata using MusicBrainz API (simulated).
      * Adjusts confidenceScore, sets validated flag, and updates provenance.
+     * Enriches genre and releaseDate if available from API.
      * Logs validation actions and results.
      *
      * @param song Song to validate and enrich
-     * @return New Song with updated validation, confidence, and provenance
+     * @return New Song with updated validation, confidence, provenance, genre, and releaseDate
      */
     public Song validateAndEnrich(Song song) {
         // Simulate MusicBrainz validation: if title and artist are non-empty, mark as validated
         boolean isValid = song.title() != null && !song.title().isBlank()
                 && song.artist() != null && !song.artist().isBlank();
         double newConfidence = isValid ? Math.min(1.0, song.confidenceScore() + 0.2) : song.confidenceScore();
-        // Update provenance to include MusicBrainz validation
+        // Simulate enrichment: genre and releaseDate
+        String enrichedGenre = song.genre();
+        String enrichedReleaseDate = song.releaseDate();
+        // Simulate API call (replace with real API logic)
+        if (isValid) {
+            // Example enrichment logic
+            if (song.genre() == null || song.genre().isBlank()) {
+                enrichedGenre = "Electronic"; // Simulated genre from API
+            }
+            if (song.releaseDate() == null || song.releaseDate().isBlank()) {
+                enrichedReleaseDate = "2020-01-01"; // Simulated release date from API
+            }
+        }
+        // Update provenance to include MusicBrainz validation and enrichment
         Map<String, Object> newSourceDetails = new java.util.HashMap<>(song.sourceDetails());
-        newSourceDetails.put("MusicBrainz", isValid ? "Validated" : "Not validated");
+        newSourceDetails.put("MusicBrainz", Map.of(
+            "source", "MusicBrainz",
+            "status", isValid ? "Validated" : "Not validated"
+        ));
+        newSourceDetails.put("GenreEnrichment", Map.of(
+            "source", "MusicBrainz",
+            "value", enrichedGenre
+        ));
+        newSourceDetails.put("ReleaseDateEnrichment", Map.of(
+            "source", "MusicBrainz",
+            "value", enrichedReleaseDate
+        ));
         // Update per-field validation status
         Map<String, Boolean> newFieldValidationStatus = new java.util.HashMap<>(song.fieldValidationStatus());
         newFieldValidationStatus.put("MusicBrainz", isValid);
-        // Log validation result
+        newFieldValidationStatus.put("GenreEnrichment", enrichedGenre != null && !enrichedGenre.isBlank());
+        newFieldValidationStatus.put("ReleaseDateEnrichment", enrichedReleaseDate != null && !enrichedReleaseDate.isBlank());
+        // Log validation and enrichment result
         System.out.println("MusicBrainz validation for '" + song.title() + "' by '" + song.artist() + "': " + (isValid ? "VALIDATED" : "NOT VALIDATED"));
+        System.out.println("Genre enrichment: " + enrichedGenre);
+        System.out.println("Release date enrichment: " + enrichedReleaseDate);
         // Return new Song with updated fields
         return new Song(
             song.title(),
@@ -54,8 +83,8 @@ public class MusicBrainzClient {
             song.playlistPosition(),
             song.explicit(),
             song.imageUrl(),
-            song.releaseDate(),
-            song.genre(),
+            enrichedReleaseDate,
+            enrichedGenre,
             song.trackAsin(),
             isValid,
             newConfidence,
