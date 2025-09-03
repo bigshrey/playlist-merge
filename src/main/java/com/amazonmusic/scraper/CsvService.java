@@ -14,19 +14,53 @@ import java.util.List;
 
 /**
  * Service for exporting song data to CSV files using OpenCSV.
- * Handles safe string conversion and logging.
- * 
+ * <p>
+ * Workflow:
+ * <ul>
+ *   <li>Exports all Song fields, including provenance ({@code sourceDetails}) and validation status.</li>
+ *   <li>Ensures safe string conversion and logs export operations.</li>
+ *   <li>Supports future extensibility for additional metadata fields.</li>
+ * </ul>
+ * <p>
+ * Future extensibility: Can be extended to export per-field validation status and enriched metadata.
+ *
  * @author Amazon Music Scraper Team
  * @since 1.0
  */
 public class CsvService implements CsvServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(CsvService.class);
 
+    // Central registry of CSV-exported fields for extensibility
+    private static final List<MetadataField> CSV_FIELDS = List.of(
+        new MetadataField("Title", List.of()),
+        new MetadataField("Artist", List.of()),
+        new MetadataField("Album", List.of()),
+        new MetadataField("URL", List.of()),
+        new MetadataField("Duration", List.of()),
+        new MetadataField("TrackNumber", List.of()),
+        new MetadataField("PlaylistPosition", List.of()),
+        new MetadataField("Explicit", List.of()),
+        new MetadataField("ImageURL", List.of()),
+        new MetadataField("ReleaseDate", List.of()),
+        new MetadataField("Genre", List.of()),
+        new MetadataField("TrackASIN", List.of()),
+        new MetadataField("Validated", List.of()),
+        new MetadataField("ConfidenceScore", List.of()),
+        new MetadataField("SourceDetails", List.of()),
+        new MetadataField("FieldValidationStatus", List.of())
+    );
+    // TODO [PRIORITY: MEDIUM][2025-09-04]: Update CSV_FIELDS when adding new metadata fields. Ensure all consumers (CSV, DB, validation) use this registry for consistency.
+
     /**
      * Writes a list of songs to a CSV file.
      * @param songs List of Song records to export
      * @param filename Output CSV filename
      * @throws IOException if file writing fails
+     * <p>
+     * All major workflow TODOs are resolved:
+     * - Exports all Song fields, including provenance (sourceDetails) and per-field validation status.
+     * - CSV export logic matches Song record structure.
+     * Remaining TODOs are for future extensibility only.
      */
     public void writeSongsToCSV(List<Song> songs, String filename) throws IOException {
         if (songs == null) {
@@ -46,9 +80,8 @@ public class CsvService implements CsvServiceInterface {
             logger.warn("Failed to ensure scraped-data directory exists: {}. Will attempt to write to current directory.", e.getMessage());
         }
         try (CSVWriter writer = new CSVWriter(new FileWriter(filename))) {
-            writer.writeNext(new String[]{
-                "Title", "Artist", "Album", "URL", "Duration", "TrackNumber", "PlaylistPosition", "Explicit", "ImageURL", "ReleaseDate", "Genre", "TrackASIN", "Validated", "ConfidenceScore", "SourceDetails"
-            });
+            // Dynamic header from CSV_FIELDS
+            writer.writeNext(CSV_FIELDS.stream().map(f -> f.fieldName).toArray(String[]::new));
             for (Song song : songs) {
                 writer.writeNext(new String[]{
                     safe(song.title()),
@@ -65,12 +98,17 @@ public class CsvService implements CsvServiceInterface {
                     safe(song.trackAsin()),
                     Boolean.toString(song.validated()),
                     Double.toString(song.confidenceScore()),
-                    song.sourceDetails() == null ? "" : new ObjectMapper().writeValueAsString(song.sourceDetails())
+                    song.sourceDetails() == null ? "" : new ObjectMapper().writeValueAsString(song.sourceDetails()),
+                    song.fieldValidationStatus() == null ? "" : new ObjectMapper().writeValueAsString(song.fieldValidationStatus())
                 });
             }
         }
         logger.info("Wrote {} songs to CSV file: {}", songs.size(), filename);
     }
+
+    // TODO: Update CSV export logic if Song.sourceDetails type changes to Map<String, Object>. (future extensibility)
+    // TODO [RESOLVED 2025-09-04]: Add support for exporting per-field validation status if added to Song. (already implemented)
+    // Per-field validation status is exported as JSON in the FieldValidationStatus column. See writeSongsToCSV for details.
 
     /**
      * Safely converts a string for CSV output, removing commas and newlines.

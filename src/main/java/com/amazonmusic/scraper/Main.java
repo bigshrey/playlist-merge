@@ -69,7 +69,7 @@ public class Main {
         if (!sessionExists) {
             // attempt automated sign-in via provided AuthService
             authService.automateSignIn(page);
-            authService.waitForUserToContinue();
+            authService.handleManualLogin(page, null); // replaces waitForUserToContinue
             authService.printSessionCookies(context);
             authService.saveStorageState(context);
         }
@@ -80,7 +80,7 @@ public class Main {
         if (!scraperService.isSignedIn(page)) {
             logger.warn("Session restored, but user is NOT signed in. Running sign-in workflow...");
             authService.automateSignIn(page);
-            authService.waitForUserToContinue();
+            authService.handleManualLogin(page, null); // replaces waitForUserToContinue
             authService.printSessionCookies(context);
             authService.saveStorageState(context);
         } else {
@@ -95,7 +95,14 @@ public class Main {
         // Navigate to library playlists using robust selectors and lazy waits
         scraperService.goToLibraryPlaylists(page);
         Utils.retryPlaywrightAction(() -> { page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE); return true; }, 2, "wait for network idle");
-        page.waitForTimeout(800);
+
+        // Wait for playlist tiles to appear instead of arbitrary timeout
+        try {
+            page.waitForSelector("[data-test='playlist'], [data-testid='playlist'], a[href*='/playlist'], music-vertical-item, .music-image-row, music-horizontal-item", new Page.WaitForSelectorOptions().setTimeout(3000.0));
+            logger.debug("Playlist tiles appeared after network idle.");
+        } catch (Exception e) {
+            logger.warn("Timeout waiting for playlist tiles: {}", e.getMessage());
+        }
 
         var playlists = scraperService.scrapePlaylistLinks(page);
         if (playlists == null || playlists.isEmpty()) {
@@ -170,7 +177,8 @@ public class Main {
             } catch (Exception e) {
                 // fall through to default
             }
-            if (mode == null || mode.isBlank()) mode = "2";
+            // Simplify always-false/true condition for mode
+            if (mode.isBlank()) mode = "2";
 
             // runtime data dir; embedded Postgres will pick an available port if we pass 0
             String pgDataDir = System.getProperty("EMBEDDED_PG_DATA_DIR", "scraped-data/pgdata");
@@ -184,7 +192,8 @@ public class Main {
                     String host = "localhost";
                     int port = postgres.getPort();
                     // write IntelliJ datasource files using runtime host/port
-                    writeIntelliJDataSource(host, port, pgDataDir);
+
+                    writeIntelliJDataSource(host, port);
                     String jdbc = String.format("jdbc:postgresql://%s:%d/postgres", host, port);
                      System.out.println("Embedded Postgres started.");
                      System.out.println("JDBC URL: " + jdbc);
@@ -193,7 +202,9 @@ public class Main {
                      System.out.println("Data directory: scraped-data/pgdata");
                      System.out.println("The DB will keep running until you press Enter. Connect with your DB client to inspect data.");
                      System.out.println("Press Enter to stop the embedded DB and exit.");
-                     try { int __ = System.in.read(); } catch (Exception ignored) {}
+                     // Remove unused variable '__' in db-only mode
+                     // try { int __ = System.in.read(); } catch (Exception ignored) {}
+                     try { System.in.read(); } catch (Exception ignored) {}
                      return;
                  } catch (Exception e) {
                      logger.error("Failed to start embedded Postgres in db-only mode: {}", e.getMessage());
@@ -213,7 +224,7 @@ public class Main {
             String host = "localhost";
             int port = postgres.getPort();
             // write IntelliJ datasource files using runtime host/port
-            writeIntelliJDataSource(host, port, pgDataDir);
+            writeIntelliJDataSource(host, port);
             PostgresServiceInterface postgresService = createPostgresService(postgres);
 
             try (Playwright playwright = Playwright.create()) {
@@ -241,7 +252,7 @@ public class Main {
     }
 
     // Write IntelliJ IDEA Data Source config files (.idea/dataSources.xml and dataSources.local.xml)
-    private static void writeIntelliJDataSource(String host, int port, String dataDir) {
+    private static void writeIntelliJDataSource(String host, int port) {
         try {
             Path idea = Paths.get(".idea");
             if (!Files.exists(idea)) Files.createDirectories(idea);

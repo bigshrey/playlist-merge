@@ -41,11 +41,13 @@ public interface AuthServiceInterface {
     void automateSignIn(Page page);
     
     /**
-     * Displays the browser for manual login by the user.
-     * @param page Playwright page instance to display
+     * Robust manual login workflow: prompts user, waits for completion, and handles browser closure, network errors, and user abort.
+     * Optionally accepts a Runnable callback for extensibility.
+     * @param page Playwright page instance
+     * @param onComplete Optional callback to run after successful manual login (may be null)
      */
-    void displayBrowserForManualLogin(Page page);
-    
+    void handleManualLogin(Page page, Runnable onComplete);
+
     /**
      * Prints session cookies from the browser context for debugging purposes.
      * @param context Browser context containing session cookies
@@ -59,8 +61,9 @@ public interface AuthServiceInterface {
     void waitForAuthUi(Page page);
     
     /**
-     * Waits for user input to continue the authentication process.
+     * Checks if the current page is authenticated using both session cookies and DOM elements.
+     * @param page Playwright page instance to check
+     * @return true if authenticated, false otherwise
      */
-    void waitForUserToContinue();
+    boolean isAuthenticated(Page page);
 }
-

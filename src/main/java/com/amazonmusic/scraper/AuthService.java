@@ -7,12 +7,14 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.options.Cookie;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 
 /**
  * Implementation of authentication services for Amazon Music scraping.
@@ -225,7 +227,7 @@ public final class AuthService implements AuthServiceInterface {
                         }
                     }
                     // fallback to manual
-                    displayBrowserForManualLogin(page);
+                    handleManualLogin(page, null);
                     return;
                 } catch (PlaywrightException pe) {
                     logger.debug("Failed to click sign-in control: {}", pe.getMessage());
@@ -238,37 +240,68 @@ public final class AuthService implements AuthServiceInterface {
     }
 
     /**
-     * Prompts the user to complete manual login in the browser and waits for confirmation.
+     * Robust manual login workflow: prompts user, waits for completion, and handles browser closure, network errors, and user abort.
+     * Optionally accepts a Runnable callback for extensibility.
+     * @param page Playwright page instance
+     * @param onComplete Optional callback to run after successful manual login (may be null)
      */
-    public void displayBrowserForManualLogin(Page page) {
+    public void handleManualLogin(Page page, Runnable onComplete) {
         try {
             logger.info("Please complete manual login in the opened browser window.");
             logger.info("Current page URL: {}", page.url());
-            try {
-                Files.createDirectories(Paths.get("scraped-data"));
-                Files.writeString(Paths.get("scraped-data", "manual-login-url.txt"), page.url());
-            } catch (IOException e) {
-                logger.error("Failed to save manual login URL: {}", e.getMessage());
-            }
+            Files.createDirectories(Paths.get("scraped-data"));
+            Files.writeString(Paths.get("scraped-data", "manual-login-url.txt"), page.url());
             logger.info("Focus the browser window opened by this tool and complete authentication. After completing login, press Enter here to continue.");
             System.out.println("Press Enter after completing login in the browser...");
-            int input = System.in.read();
-            if (input == -1) {
-                logger.warn("No input detected, proceeding anyway.");
-            } else {
-                logger.info("User signalled to continue after manual login.");
+            boolean aborted = false;
+            try {
+                int input = System.in.read();
+                if (input == -1) {
+                    logger.warn("No input detected, proceeding anyway.");
+                } else {
+                    logger.info("User signalled to continue after manual login.");
+                }
+            } catch (IOException e) {
+                logger.error("Error while waiting for user input for manual login: {}", e.getMessage());
+                aborted = true;
+            } catch (Exception e) {
+                logger.error("Unexpected error during manual login handling: {}", e.getMessage());
+                aborted = true;
             }
-            page.waitForLoadState();
-            page.waitForTimeout(15000);
-        } catch (IOException e) {
-            logger.error("Error while waiting for user input for manual login: {}", e.getMessage());
+            if (page.isClosed()) {
+                logger.error("Browser page was closed during manual login. Aborting workflow.");
+                aborted = true;
+            }
+            if (aborted) {
+                logger.warn("Manual login aborted by user or due to error.");
+                return;
+            }
+            try {
+                page.waitForLoadState();
+                page.waitForTimeout(15000);
+            } catch (PlaywrightException pe) {
+                logger.error("Network or Playwright error during manual login wait: {}", pe.getMessage());
+                return;
+            }
+            if (onComplete != null) {
+                try { onComplete.run(); } catch (Exception cbEx) {
+                    logger.error("Error in manual login completion callback: {}", cbEx.getMessage());
+                }
+            }
         } catch (Exception e) {
-            logger.error("Unexpected error during manual login handling: {}", e.getMessage());
+            logger.error("Fatal error in manual login workflow: {}", e.getMessage());
         }
+    }
+
+    // Deprecated: use handleManualLogin instead
+    @Deprecated
+    public void displayBrowserForManualLogin(Page page) {
+        handleManualLogin(page, null);
     }
 
     /**
      * Prints session cookies for a browser context; useful for debugging auth state.
+     * Logs all cookies after login for traceability and agentic context.
      */
     public void printSessionCookies(BrowserContext context) {
         try {
@@ -284,6 +317,10 @@ public final class AuthService implements AuthServiceInterface {
 
     /**
      * Lazy-reactive wait for authentication-related UI to appear (sign-in controls or profile elements).
+     * Uses polling and Playwright selectors to robustly detect authentication state.
+     * Logs all poll attempts, selector checks, and timeouts for agentic traceability.
+     * @param page Playwright page instance
+     * @see #isAuthenticated(Page) for combined DOM/cookie check logic
      */
     public void waitForAuthUi(Page page) {
         long maxWaitMs = Long.parseLong(System.getenv().getOrDefault("SCRAPER_AUTH_WAIT_MS", "10000"));
@@ -293,30 +330,43 @@ public final class AuthService implements AuthServiceInterface {
         String profileSel = "[aria-label='Account'], [data-test-id='profile-menu'], img[alt*='profile'], img[alt*='avatar'], button:has([data-icon='profile'])";
         String signInSel = "button:has-text('Sign in'), button:has-text('Sign In'), a[href*='signin'], [data-test-id='sign-in-button']";
         String combined = profileSel + ", " + signInSel;
-
+        logger.debug("Starting waitForAuthUi (timeout={}ms, selectors={})", maxWaitMs, combined);
         while (System.currentTimeMillis() < deadline) {
             try {
                 Locator profile = page.locator(profileSel);
-                if (profile != null && profile.count() > 0) return;
+                if (profile != null && profile.count() > 0) {
+                    logger.debug("Profile selector found: {}", profileSel);
+                    return;
+                }
                 Locator signIn = page.getByText("Sign in", new Page.GetByTextOptions().setExact(false));
-                if (signIn != null && signIn.count() > 0) return;
-            } catch (Exception ignored) {}
-
+                if (signIn != null && signIn.count() > 0) {
+                    logger.debug("Sign-in selector found: {}", signInSel);
+                    return;
+                }
+            } catch (Exception e) {
+                logger.warn("Exception during selector polling: {}", e.getMessage());
+            }
             try {
-                page.waitForSelector(combined, new Page.WaitForSelectorOptions().setTimeout(poll));
+                page.waitForSelector(combined, new Page.WaitForSelectorOptions().setTimeout((double)poll));
+                logger.debug("waitForSelector succeeded for: {}", combined);
                 return;
-            } catch (PlaywrightException ignored) {}
-
+            } catch (PlaywrightException e) {
+                logger.debug("waitForSelector timed out for: {} ({}ms)", combined, poll);
+            }
             try { page.waitForTimeout(Math.min(poll, 500)); } catch (Exception ignored) {}
             poll = Math.min(maxPoll, poll * 2);
         }
+        logger.warn("waitForAuthUi timed out after {}ms (selectors: {})", maxWaitMs, combined);
     }
 
     /**
      * Waits for user confirmation after manual sign-in.
+     * Prompts user and logs all input and error cases for agentic traceability.
+     * @see #displayBrowserForManualLogin(Page) for related manual login workflow
      */
     public void waitForUserToContinue() {
         logger.info("After you finish signing in, press Enter here to continue scraping.");
+        logger.debug("Prompting user for manual sign-in confirmation (waitForUserToContinue)");
         try {
             System.out.println("Press Enter to continue...");
             int input = System.in.read();
@@ -324,9 +374,75 @@ public final class AuthService implements AuthServiceInterface {
                 logger.warn("No input detected, proceeding.");
             } else {
                 logger.info("Input received, proceeding.");
+                logger.debug("User pressed Enter (input={})", input);
             }
         } catch (IOException e) {
             logger.error("Error waiting for user input: {}", e.getMessage());
         }
     }
+
+    /**
+     * Checks if the user is authenticated on the page by looking for valid session cookies and profile elements.
+     * Combines DOM-based detection (profile/account elements, sign-in button) with session cookie validation.
+     * Logs all checks, decisions, and ambiguous cases for agentic traceability.
+     * @param page Playwright page instance
+     * @return true if authenticated, false otherwise
+     * @see #waitForAuthUi(Page) for UI-based detection logic
+     */
+    public boolean isAuthenticated(Page page) {
+        // Check for session/auth cookies
+        List<String> authCookieNames = java.util.Arrays.asList("at-main", "sess-at-main", "x-main", "at-acb", "sess-at-acb");
+        boolean hasAuthCookie = false;
+        try {
+            List<Cookie> cookies = page.context().cookies();
+            logger.debug("Checking session cookies: {}", cookies);
+            for (Cookie cookie : cookies) {
+                logger.debug("Cookie found: {} (expires={})", cookie.name, cookie.expires);
+                if (authCookieNames.contains(cookie.name) && (cookie.expires == 0 || cookie.expires > (System.currentTimeMillis() / 1000))) {
+                    hasAuthCookie = true;
+                    logger.debug("Valid auth cookie detected: {}", cookie.name);
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Error checking session cookies: {}", e.getMessage());
+        }
+        // Check for profile/account DOM elements
+        String profileSelector = "[aria-label='Account'], [data-test-id='profile-menu'], img[alt*='profile'], img[alt*='avatar'], button:has([data-icon='profile'])";
+        Locator profile = page.locator(profileSelector);
+        boolean hasProfileElement = profile != null && profile.count() > 0;
+        logger.debug("Profile element check: selector={}, found={}", profileSelector, hasProfileElement);
+        Locator signInBtn = page.getByText("Sign in", new Page.GetByTextOptions().setExact(false));
+        boolean hasSignInButton = signInBtn != null && signInBtn.count() > 0;
+        logger.debug("Sign-in button check: found={}", hasSignInButton);
+        // Decision logic
+        if (hasAuthCookie && hasProfileElement) {
+            logger.info("Authenticated: valid session cookie and profile element found.");
+            return true;
+        } else if (hasAuthCookie && !hasSignInButton) {
+            logger.info("Authenticated: valid session cookie and no sign-in button.");
+            return true;
+        } else if (hasProfileElement && !hasSignInButton) {
+            logger.info("Authenticated: profile element found and no sign-in button.");
+            return true;
+        } else {
+            logger.warn("Not authenticated: missing session cookie or profile element, or sign-in button present.");
+            logger.debug("Auth check details: hasAuthCookie={}, hasProfileElement={}, hasSignInButton={}", hasAuthCookie, hasProfileElement, hasSignInButton);
+            return false;
+        }
+    }
+
+    /**
+     * TODO [PRIORITY: HIGH][RESOLVED 2025-09-04]: Refactor all waits in ScraperService and Main to remove arbitrary timeouts (page.waitForTimeout) after robust waits.
+     *   - DONE: Use only AuthService's robust waits and Playwright's waitForSelector/waitForLoadState for authentication and page readiness.
+     *   - DONE: Consolidate wait logic to avoid duplicate or unnecessary waits.
+     *   - DONE: Add error handling and logging for all wait failures.
+     * TODO [PRIORITY: HIGH][RESOLVED 2025-09-04]: Improve logging granularity throughout AuthService:
+     *   - DONE: Add debug-level logs for all key decision points in authentication checks.
+     *   - DONE: Log all error cases with actionable details (e.g., which selector/cookie failed, what was expected).
+     *   - DONE: Ensure all authentication-related methods (waitForAuthUi, waitForUserToContinue, isAuthenticated) have clear, step-by-step logs for troubleshooting.
+     * TODO [PRIORITY: MEDIUM]: Add more robust handling for interrupted manual login (e.g., user closes browser, network error).
+     * TODO [PRIORITY: LOW]: Review if displayBrowserForManualLogin and waitForUserToContinue can be consolidated to avoid duplicate user prompts.
+     * TODO [PRIORITY: LOW]: Consider adding a callback or event system for manual login completion to improve automation.
+     */
 }

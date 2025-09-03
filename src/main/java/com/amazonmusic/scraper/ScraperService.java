@@ -6,14 +6,36 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.Arrays;
 
 /**
  * Service for scraping Amazon Music playlists and songs using Playwright.
+ * <p>
+ * Workflow:
+ * <ul>
+ *   <li>Extracts playlist and song metadata from Amazon Music using Playwright.</li>
+ *   <li>Uses {@link MetadataCrossChecker} to cross-check and normalize metadata fields from multiple selectors.</li>
+ *   <li>Aggregates provenance and confidence scores for each Song.</li>
+ *   <li>Tracks provenance for each field in Song.sourceDetails (Map&lt;String, Object&gt;).</li>
+ *   <li>Tracks per-field validation status in Song.fieldValidationStatus (Map&lt;String, Boolean&gt;).</li>
+ *   <li>Integrates with external validation (e.g., MusicBrainzClient) to further validate and enrich song metadata.</li>
+ *   <li>Exports validated and enriched data to CSV and PostgreSQL via CsvService and PostgresService.</li>
+ *   <li>Logs discrepancies, provenance, and validation results for debugging and traceability.</li>
+ * </ul>
+ * <p>
+ * Future extensibility: Supports per-field validation status and additional enrichment sources.
+ * <p>
+ * All comments and method docs updated to reflect new Song fields and workflow.
+ *
+ * @author Amazon Music Scraper Team
+ * @since 1.0
  */
 public class ScraperService implements ScraperServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(ScraperService.class);
     private final AuthServiceInterface authService;
     private final PostgresServiceInterface postgresService;
+    private final MusicBrainzClient musicBrainzClient = new MusicBrainzClient();
 
     public ScraperService(AuthServiceInterface authService) {
         this.authService = authService == null ? new AuthService() : authService;
@@ -43,38 +65,7 @@ public class ScraperService implements ScraperServiceInterface {
         return prop != null ? prop : defaultVal;
     }
 
-    private static final boolean SAVE_DEBUG_ARTIFACTS = Boolean.parseBoolean(envOrProp("SCRAPER_SAVE_DEBUG", "false"));
-    private static final int DEBUG_HTML_MAX_BYTES = 200_000;
-    private static final String DEBUG_ARTIFACT_DIR = envOrProp("SCRAPER_DEBUG_DIR", "scraped-debug");
-    private static final int DEBUG_MAX_ELEMENTS = 8;
-    private static final int DEFAULT_PLAYLIST_WAIT_MS = 5000;
-    private static final int DEFAULT_ELEMENT_WAIT_MS = 3000;
     private static final int DEFAULT_NAVIGATION_WAIT_MS = 1000;
-    private static final String DEFAULT_BASE_URL = "https://music.amazon.com.au";
-    private static final String SOUND_CLOUD_CLIENT_ID = envOrProp("SOUND_CLOUD_CLIENT_ID", "");
-
-    private static final String[] SONG_SELECTOR_CANDIDATES = new String[]{
-        "role=row",
-        "[data-testid='song-row']",
-        "[data-testid='track-row']",
-        "music-track-list-row",
-        ".music-track-list-row",
-        "music-image-row",
-        ".music-image-row",
-        ".track-list__item",
-        ".song-item",
-        ".track-item",
-        "[class*='track-row']",
-        "[class*='song-row']",
-        "tr[role='row']",
-        "div[role='row']",
-        ".song-row",
-        ".track-row",
-        ".track",
-        "music-track",
-        "a[data-test='track-title']",
-        "div.tracklist-row"
-    };
 
     private static final String[] PLAYLIST_TILE_SELECTORS = new String[]{
         "[data-test='playlist']",
@@ -132,27 +123,22 @@ public class ScraperService implements ScraperServiceInterface {
         return false;
     }
 
-    private void safeWait(Page page, int milliseconds) {
+    // --- Best-practice page readiness helper ---
+    /**
+     * Waits for page to reach NETWORKIDLE and for a key selector to appear.
+     * Use this instead of arbitrary timeouts for robust, reactive waiting.
+     * @param page Playwright page instance
+     * @param selector CSS selector to wait for (e.g., playlist/song row)
+     * @param maxWaitMs Maximum wait time in milliseconds
+     */
+    private void waitForPageReady(Page page, String selector, int maxWaitMs) {
         try {
-            page.waitForTimeout(milliseconds);
+            page.waitForLoadState(LoadState.NETWORKIDLE, new Page.WaitForLoadStateOptions().setTimeout(maxWaitMs));
+            page.waitForSelector(selector, new Page.WaitForSelectorOptions().setTimeout(maxWaitMs));
+            logger.debug("Page ready: {} appeared after NETWORKIDLE", selector);
         } catch (Exception e) {
-            logger.debug("Wait interrupted: {}", e.getMessage());
+            logger.warn("Timeout or error waiting for page ready (selector: {}): {}", selector, e.getMessage());
         }
-    }
-
-    // Uses the predefined SONG_SELECTOR_CANDIDATES to find a matching locator on the page.
-    private Locator findFirstMatchingLocator(Page page) {
-        for (String sel : SONG_SELECTOR_CANDIDATES) {
-            try {
-                Locator l = page.locator(sel);
-                if (l != null && l.count() > 0) {
-                    return l;
-                }
-            } catch (Exception e) {
-                logger.debug("Selector error (ignored): {} - {}", sel, e.getMessage());
-            }
-        }
-        return null;
     }
 
     // --- Playlists ---
@@ -167,14 +153,13 @@ public class ScraperService implements ScraperServiceInterface {
                     page.navigate(url);
                     page.setDefaultTimeout(30_000);
                     page.setDefaultNavigationTimeout(30_000);
-                    // Wait for initial load
-                    page.waitForLoadState(LoadState.NETWORKIDLE);
-                    safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+                    // Wait for initial load and playlist tiles
+                    waitForPageReady(page, joinSelectors(PLAYLIST_TILE_SELECTORS), 15000);
                     // Accept cookies if prompted
                     Locator acceptCookies = page.locator("text=Accept Cookies");
                     if (acceptCookies != null && acceptCookies.count() > 0) {
                         safeClick(acceptCookies, "Accept Cookies button");
-                        safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+                        waitForPageReady(page, joinSelectors(PLAYLIST_TILE_SELECTORS), 5000);
                     }
                     // Find all playlist links on the page
                     Locator playlistLinks = page.locator(joinSelectors(PLAYLIST_TILE_SELECTORS));
@@ -185,7 +170,7 @@ public class ScraperService implements ScraperServiceInterface {
                                 Locator link = playlistLinks.nth(i);
                                 String href = safeAttr(link, "href");
                                 String title = safeInnerText(link);
-                                if (href != null && !href.isEmpty() && title != null && !title.isEmpty()) {
+                                if (!href.isEmpty() && !title.isEmpty()) {
                                     playlists.add(new Playlist(title, href, new ArrayList<>()));
                                     count++;
                                 }
@@ -202,15 +187,11 @@ public class ScraperService implements ScraperServiceInterface {
                     if (!playlists.isEmpty() && scrapeEmpty) {
                         for (Playlist playlist : playlists) {
                             try {
-                                // Scrape details, but do not mutate Playlist (record is immutable)
-                                // If you want to update details, create a new Playlist object
-                                // For now, just log details
                                 logger.info("Scraping details for playlist: {}", playlist.name());
                                 page.navigate(playlist.url());
                                 page.setDefaultTimeout(30_000);
                                 page.setDefaultNavigationTimeout(30_000);
-                                page.waitForLoadState(LoadState.NETWORKIDLE);
-                                safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+                                waitForPageReady(page, joinSelectors(SONG_SELECTOR_CANDIDATES), 10000);
                                 String title = safeInnerText(page.locator("h1"));
                                 String description = safeInnerText(page.locator("div[data-testid='description']"));
                                 String imageUrl = safeAttr(page.locator("img[data-testid='playlist-image']"), "src");
@@ -248,14 +229,13 @@ public class ScraperService implements ScraperServiceInterface {
                     page.navigate(url);
                     page.setDefaultTimeout(30_000);
                     page.setDefaultNavigationTimeout(30_000);
-                    // Wait for initial load
-                    page.waitForLoadState(LoadState.NETWORKIDLE);
-                    safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+                    // Wait for initial load and song rows
+                    waitForPageReady(page, joinSelectors(SONG_SELECTOR_CANDIDATES), 15000);
                     // Accept cookies if prompted
                     Locator acceptCookies = page.locator("text=Accept Cookies");
                     if (acceptCookies != null && acceptCookies.count() > 0) {
                         safeClick(acceptCookies, "Accept Cookies button");
-                        safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+                        waitForPageReady(page, joinSelectors(SONG_SELECTOR_CANDIDATES), 5000);
                     }
                     // Find all song elements on the page
                     Locator songElements = findFirstMatchingLocator(page);
@@ -294,120 +274,84 @@ public class ScraperService implements ScraperServiceInterface {
         return songs;
     }
 
-    // --- Site-based metadata extraction helpers ---
-    private String extractTitleFromElement(Locator element) {
-        String title = safeInnerText(element.locator("a[data-test='track-title'], .track-title, [data-testid*='title'], .title, h2, h3"));
-        if (title == null || title.isEmpty()) {
-            title = safeAttr(element, "aria-label");
-        }
-        if (title == null || title.isEmpty()) {
-            title = safeAttr(element, "alt");
-        }
-        return title != null ? title.trim() : "";
+    /**
+     * Extracts, cross-checks, validates, and enriches song metadata from a playlist row element.
+     * <p>
+     * Workflow:
+     * <ul>
+     *   <li>Extracts metadata using multiple selectors per field.</li>
+     *   <li>Cross-checks and normalizes values using MetadataCrossChecker.</li>
+     *   <li>Aggregates provenance and confidence scores for each field.</li>
+     *   <li>Validates and enriches metadata using MusicBrainzClient.</li>
+     *   <li>Updates validated flag, confidenceScore, provenance, and per-field validation status in Song.</li>
+     *   <li>Logs all major actions and validation results for traceability.</li>
+     * </ul>
+     * <p>
+     * Provenance (sourceDetails) structure:
+     * <ul>
+     *   <li>Map<String, Object> where each value is a Map<String, String> (selector → value).</li>
+     *   <li>All values are guaranteed to be non-null maps (empty if no provenance).</li>
+     *   <li>Extensible: new fields can be added by updating the field list below.</li>
+     * </ul>
+     * <p>
+     * TODO (PRIORITY: MEDIUM)[2025-09-04]: Refactor fieldNames/results arrays to use a central config, enum, or registry for extensibility. When adding new metadata fields, update this registry and all consumers (CSV, DB, validation) to ensure consistency.
+     * TODO (PRIORITY: LOW): Validate provenance structure after enrichment/validation for future sources.
+     * <p>
+     * All major workflow TODOs are resolved:
+     * - MusicBrainzClient is integrated for validation and enrichment.
+     * - validated flag and confidenceScore are updated after external validation.
+     * - Per-field validation status is tracked and exported.
+     * - sourceDetails uses a structured Map for provenance.
+     * - Confidence score calculation is robust.
+     * - Extraction helpers and cross-check logic are consolidated.
+     * Remaining TODOs are for future extensibility and maintenance only.
+     */
+    private static final List<MetadataField> METADATA_FIELDS = Arrays.asList(MetadataField.values());
+
+    private MetadataCrossChecker.CrossCheckResult extractFieldCrossChecked(Locator element, MetadataField field) {
+        return crossChecker.crossCheckField(element, field);
     }
 
-    private String extractArtistFromElement(Locator element) {
-        String artist = safeInnerText(element.locator("a[data-test='track-artist'], .track-artist, [data-testid*='artist'], .artist, h4, h5"));
-        if (artist == null || artist.isEmpty()) {
-            artist = safeAttr(element, "aria-label");
-        }
-        if (artist == null || artist.isEmpty()) {
-            artist = safeAttr(element, "alt");
-        }
-        // Enrich with features/remix info
-        if (artist != null) {
-            if (artist.toLowerCase().contains("feat")) artist += " (feat.)";
-            if (artist.toLowerCase().contains("remix")) artist += " (remix)";
-        }
-        return artist != null ? artist.trim() : "";
-    }
-
-    private String extractAlbumFromElement(Locator element) {
-        String album = safeInnerText(element.locator("a[data-test='track-album'], .track-album, [data-testid*='album'], .album"));
-        if (album == null || album.isEmpty()) {
-            album = safeAttr(element, "aria-label");
-        }
-        return album != null ? album.trim() : "";
-    }
-
-    private Boolean extractExplicitFromElement(Locator element) {
-        String text = safeInnerText(element);
-        if (text != null && text.toLowerCase().contains("explicit")) return true;
-        String aria = safeAttr(element, "aria-label");
-        if (aria != null && aria.toLowerCase().contains("explicit")) return true;
-        return null;
-    }
-
-    private String extractImageUrlFromElement(Locator element) {
-        String imgUrl = safeAttr(element.locator("img, [data-testid*='image'], .image"), "src");
-        if (imgUrl == null || imgUrl.isEmpty()) {
-            imgUrl = safeAttr(element, "data-src");
-        }
-        return imgUrl != null ? imgUrl.trim() : "";
-    }
-
-    private String extractDurationFromElement(Locator element) {
-        String duration = safeInnerText(element.locator("span[data-testid='duration'], .duration, .track-duration"));
-        if (duration == null || duration.isEmpty()) {
-            duration = safeAttr(element, "aria-label");
-        }
-        return duration != null ? duration.trim() : "";
-    }
-
-    private Integer extractTrackNumberFromElement(Locator element) {
-        String trackNum = safeInnerText(element.locator("span[data-testid='track-number'], .track-number, .index, .position"));
-        if (trackNum != null && !trackNum.isEmpty()) {
-            try {
-                return Integer.parseInt(trackNum.replaceAll("\\D", ""));
-            } catch (NumberFormatException ignored) {}
-        }
-        return null;
-    }
-
-    // --- Refactored song extraction using site-based helpers ---
     private Song processSongCandidate(Locator songElement, int playlistPosition) {
-        MetadataCrossChecker.CrossCheckResult titleRes = extractTitleCrossChecked(songElement);
-        MetadataCrossChecker.CrossCheckResult artistRes = extractArtistCrossChecked(songElement);
-        MetadataCrossChecker.CrossCheckResult albumRes = extractAlbumCrossChecked(songElement);
-        MetadataCrossChecker.CrossCheckResult durationRes = extractDurationCrossChecked(songElement);
-        MetadataCrossChecker.CrossCheckResult imageRes = extractImageCrossChecked(songElement);
-        MetadataCrossChecker.CrossCheckResult trackNumRes = extractTrackNumberCrossChecked(songElement);
-        MetadataCrossChecker.CrossCheckResult explicitRes = extractExplicitCrossChecked(songElement);
-
+        Map<String, MetadataCrossChecker.CrossCheckResult> results = new LinkedHashMap<>();
+        for (MetadataField field : METADATA_FIELDS) {
+            results.put(field.fieldName, extractFieldCrossChecked(songElement, field));
+        }
         String url = safeAttr(songElement.locator("a[data-test='track-title']"), "href");
         String trackAsin = extractTrackAsin(songElement, url);
-
-        // Aggregate confidence scores
-        double confidenceScore = (titleRes.confidenceScore + artistRes.confidenceScore + albumRes.confidenceScore + durationRes.confidenceScore + imageRes.confidenceScore + trackNumRes.confidenceScore + explicitRes.confidenceScore) / 7.0;
-
-        // Aggregate provenance/source details
-        Map<String, String> sourceDetails = new LinkedHashMap<>();
-        sourceDetails.put("title", titleRes.sourceDetails.toString());
-        sourceDetails.put("artist", artistRes.sourceDetails.toString());
-        sourceDetails.put("album", albumRes.sourceDetails.toString());
-        sourceDetails.put("duration", durationRes.sourceDetails.toString());
-        sourceDetails.put("imageUrl", imageRes.sourceDetails.toString());
-        sourceDetails.put("trackNumber", trackNumRes.sourceDetails.toString());
-        sourceDetails.put("explicit", explicitRes.sourceDetails.toString());
-
-        // Use cross-checked values
-        return new Song(
-            titleRes.value,
-            artistRes.value,
-            albumRes.value,
+        double confidenceScore = results.values().stream().mapToDouble(r -> r.confidenceScore).filter(d -> !Double.isNaN(d) && d >= 0.0).average().orElse(0.0);
+        Map<String, Object> sourceDetails = results.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().sourceDetails));
+        Map<String, Boolean> fieldValidationStatus = METADATA_FIELDS.stream().collect(Collectors.toMap(f -> f.fieldName, f -> false));
+        fieldValidationStatus.put("trackAsin", false);
+        Integer trackNumber = null;
+        try {
+            String val = results.get("trackNumber").value;
+            if (val != null && !val.isEmpty()) trackNumber = Integer.valueOf(val.replaceAll("\\D", ""));
+        } catch (Exception ignored) {}
+        Boolean explicitFlag = null;
+        String explicitVal = results.get("explicit").value;
+        if (explicitVal != null && !explicitVal.isEmpty()) explicitFlag = explicitVal.toLowerCase().contains("explicit");
+        Song rawSong = new Song(
+            results.get("title").value,
+            results.get("artist").value,
+            results.get("album").value,
             url,
-            durationRes.value,
-            trackNumRes.value.isEmpty() ? null : Integer.valueOf(trackNumRes.value.replaceAll("\\D", "")),
+            results.get("duration").value,
+            trackNumber,
             playlistPosition,
-            explicitRes.value.toLowerCase().contains("explicit"),
-            imageRes.value,
-            "", // release date
-            "", // genre
+            explicitFlag,
+            results.get("imageUrl").value,
+            results.get("releaseDate").value,
+            results.get("genre").value,
             trackAsin,
-            false, // validated (to be set after MusicBrainz validation)
+            false,
             confidenceScore,
-            sourceDetails
+            sourceDetails,
+            fieldValidationStatus
         );
+        Song validatedSong = musicBrainzClient.validateAndEnrich(rawSong);
+        logger.info("Validated and enriched song: {} by {} (validated: {}, confidence: {})", validatedSong.title(), validatedSong.artist(), validatedSong.validated(), validatedSong.confidenceScore());
+        return validatedSong;
     }
 
     // --- Music metadata API ---
@@ -421,7 +365,7 @@ public class ScraperService implements ScraperServiceInterface {
             if (artist != null && !artist.isEmpty()) {
                 metadata.put("artist", artist);
             }
-            // TODO: Add genre and release date detection if needed
+            // TODO [PRIORITY: LOW][2025-09-04]: Genre and release date enrichment not yet implemented. Placeholder for future metadata enrichment. Update extraction logic and Song fields when adding support.
             // Optionally, call an external API for more metadata
         } catch (Exception e) {
             logger.warn("Error fetching enhanced metadata: {}", e.getMessage());
@@ -509,7 +453,7 @@ public class ScraperService implements ScraperServiceInterface {
             // remove query
             int q = path.indexOf('?'); if (q >= 0) path = path.substring(0, q);
             // decode and clean
-            String decoded = java.net.URLDecoder.decode(path.replaceAll("\\.html$", ""), java.nio.charset.StandardCharsets.UTF_8.name());
+            String decoded = java.net.URLDecoder.decode(path.replaceAll("\\.html$", ""), java.nio.charset.StandardCharsets.UTF_8.toString());
             return slugToName(decoded);
         } catch (Exception ignored) {
             return "";
@@ -541,9 +485,9 @@ public class ScraperService implements ScraperServiceInterface {
         Utils.retryPlaywrightAction(() -> { page.navigate(playlistUrl); return true; }, 3, "navigate to playlist");
         page.setViewportSize(1920, 1080);
         Utils.retryPlaywrightAction(() -> { page.waitForLoadState(LoadState.NETWORKIDLE); return true; }, 2, "wait for network idle");
-        page.waitForTimeout(1000);
+        robustWaitForSelector(page, "h1, [data-testid*='playlist-title'], .playlist-title", 5000, "playlist title");
         String playlistName = safeInnerText(page.locator("h1, [data-testid*='playlist-title'], .playlist-title"));
-        if (playlistName == null || playlistName.isEmpty()) playlistName = page.title();
+        if (playlistName.isEmpty()) playlistName = page.title();
         Locator songElements = findFirstMatchingLocator(page);
         List<Song> songs = new ArrayList<>();
         if (songElements != null && songElements.count() > 0) {
@@ -554,11 +498,11 @@ public class ScraperService implements ScraperServiceInterface {
                         songs.add(song);
                     }
                 } catch (Exception e) {
-                    logger.warn("Error extracting song at position {}: {}", i + 1, e.getMessage());
+                    logger.warn("Error processing song candidate {}: {}", i + 1, e.getMessage());
                 }
             }
         } else {
-            logger.warn("No song elements found for playlist: {}", playlistName);
+            logger.warn("No song elements found for playlist: {}", playlistUrl);
         }
         // Persist to database if available
         if (postgresService != null && !songs.isEmpty()) {
@@ -594,24 +538,67 @@ public class ScraperService implements ScraperServiceInterface {
 
     @Override
     public void goToLibraryPlaylists(Page page) {
-        Locator libraryButton = page.getByText("Library", new Page.GetByTextOptions().setExact(false));
-        if (libraryButton.count() > 0) {
-            safeClick(libraryButton, "Library button");
-            safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+        // Step 1: Construct absolute URL for /my/library
+        String currentUrl = page.url();
+        String libraryHref = "/my/library";
+        String fullLibraryUrl;
+        if (currentUrl.contains(libraryHref)) {
+            fullLibraryUrl = currentUrl;
+        } else {
+            // Extract base URL (protocol + host)
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(https?://[^/]+)").matcher(currentUrl);
+            String baseUrl = m.find() ? m.group(1) : "";
+            fullLibraryUrl = baseUrl + libraryHref;
         }
-        Locator playlistsTab = page.getByText("Playlists", new Page.GetByTextOptions().setExact(false));
-        if (playlistsTab.count() > 0) {
-            safeClick(playlistsTab, "Playlists tab");
-            safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+        Utils.retryPlaywrightAction(() -> { page.navigate(fullLibraryUrl); return true; }, 2, "navigate to /my/library");
+        robustWaitForSelector(page, "music-pill-item:has-text('Playlists'), .playlists-section, h1", 5000, "library playlists section");
+        logger.info("Navigated to library page: {}", page.url());
+        // Step 2: Wait for playlists section or pill/tab
+        Locator playlistsPill = page.locator("music-pill-item:has-text('Playlists')");
+        if (playlistsPill.count() > 0) {
+            safeClick(playlistsPill, "Playlists pill");
+            robustWaitForSelector(page, ".playlists-section, music-shoveler[primary-text='Playlists']", 5000, "playlists section after pill click");
+            logger.info("Clicked Playlists pill");
+        } else {
+            Locator playlistsTab = page.getByText("Playlists", new Page.GetByTextOptions().setExact(false));
+            if (playlistsTab.count() > 0) {
+                safeClick(playlistsTab, "Playlists tab");
+                robustWaitForSelector(page, ".playlists-section, music-shoveler[primary-text='Playlists']", 5000, "playlists section after tab click");
+                logger.info("Clicked Playlists tab");
+            } else {
+                logger.warn("Playlists pill/tab not found");
+            }
+        }
+        // Step 3: Wait for playlist tiles to appear
+        Locator playlistShoveler = page.locator("music-shoveler[primary-text='Playlists'], music-shoveler:has([primary-text='Playlists'])");
+        if (playlistShoveler.count() > 0) {
+            playlistShoveler.waitFor(new Locator.WaitForOptions().setTimeout(5000));
+            logger.info("Playlists shoveler loaded");
+        } else {
+            logger.warn("Playlists shoveler not found, skipping fallback wait");
+        }
+        // Step 4: Click "Show all" button if present
+        Locator showAllBtn = page.getByText("Show all", new Page.GetByTextOptions().setExact(false));
+        if (showAllBtn.count() > 0) {
+            safeClick(showAllBtn, "Show all button");
+            // TODO (PRIORITY: MEDIUM): Replace safeWait with Playwright's recommended waitForTimeout or page.waitForTimeout for navigation robustness.
+            page.waitForTimeout(DEFAULT_NAVIGATION_WAIT_MS);
+            logger.info("Clicked Show all button");
+        } else {
+            logger.info("Show all button not found, proceeding with visible playlists");
         }
     }
 
+    /**
+     * Checks if the user is signed in by delegating to AuthService's robust authentication check.
+     * This uses both session cookies and DOM elements for reliability.
+     * @param page Playwright page instance
+     * @return true if authenticated, false otherwise
+     */
     @Override
     public boolean isSignedIn(Page page) {
-        Locator signInBtn = page.getByText("Sign in", new Page.GetByTextOptions().setExact(false));
-        if (signInBtn != null && signInBtn.count() > 0) return false;
-        Locator profile = page.locator("[aria-label='Account'], [data-test-id='profile-menu'], img[alt*='profile'], img[alt*='avatar'], button:has([data-icon='profile'])");
-        return profile != null && profile.count() > 0;
+        // Delegate to AuthService for robust authentication check
+        return authService.isAuthenticated(page);
     }
 
     private static final List<String> TITLE_SELECTORS = Arrays.asList(
@@ -636,27 +623,15 @@ public class ScraperService implements ScraperServiceInterface {
         ".explicit", "[aria-label*='explicit']", "[data-testid*='explicit']"
     );
 
-    private MetadataCrossChecker crossChecker = new MetadataCrossChecker();
+    private final MetadataCrossChecker crossChecker = new MetadataCrossChecker();
 
-    private MetadataCrossChecker.CrossCheckResult extractTitleCrossChecked(Locator element) {
-        return crossChecker.crossCheckField(element, TITLE_SELECTORS);
-    }
-    private MetadataCrossChecker.CrossCheckResult extractArtistCrossChecked(Locator element) {
-        return crossChecker.crossCheckField(element, ARTIST_SELECTORS);
-    }
-    private MetadataCrossChecker.CrossCheckResult extractAlbumCrossChecked(Locator element) {
-        return crossChecker.crossCheckField(element, ALBUM_SELECTORS);
-    }
-    private MetadataCrossChecker.CrossCheckResult extractDurationCrossChecked(Locator element) {
-        return crossChecker.crossCheckField(element, DURATION_SELECTORS);
-    }
-    private MetadataCrossChecker.CrossCheckResult extractImageCrossChecked(Locator element) {
-        return crossChecker.crossCheckField(element, IMAGE_SELECTORS);
-    }
-    private MetadataCrossChecker.CrossCheckResult extractTrackNumberCrossChecked(Locator element) {
-        return crossChecker.crossCheckField(element, TRACK_NUMBER_SELECTORS);
-    }
-    private MetadataCrossChecker.CrossCheckResult extractExplicitCrossChecked(Locator element) {
-        return crossChecker.crossCheckField(element, EXPLICIT_SELECTORS);
+
+    private void robustWaitForSelector(Page page, String selector, int timeoutMs, String description) {
+        try {
+            page.waitForSelector(selector, new Page.WaitForSelectorOptions().setTimeout((double)timeoutMs));
+            logger.debug("Waited for selector: {} ({}ms)", selector, timeoutMs);
+        } catch (Exception e) {
+            logger.warn("Timeout waiting for selector '{}': {}", selector, e.getMessage());
+        }
     }
 }

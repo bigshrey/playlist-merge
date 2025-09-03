@@ -5,6 +5,31 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.util.*;
 
+/**
+ * Utility for cross-checking and normalizing metadata fields extracted from Amazon Music web elements.
+ * <p>
+ * Workflow:
+ * <ul>
+ *   <li>Receives a Playwright Locator and a list of selectors for a metadata field (e.g., title, artist, duration).</li>
+ *   <li>Extracts values using all selectors, normalizes them, and prioritizes selectors based on field type.</li>
+ *   <li>Assigns a confidence score based on agreement/discrepancy between selectors.</li>
+ *   <li>Logs discrepancies and provenance for debugging and traceability.</li>
+ *   <li>Provenance for each field is returned as a Map<String, String> and aggregated in Song.sourceDetails (Map<String, Object>).</li>
+ *   <li>Supports integration with external validation (e.g., MusicBrainz) via ScraperService and MusicBrainzClient to adjust confidence and provenance and update per-field validation status.</li>
+ *   <li>Per-field validation status is supported in Song via fieldValidationStatus (Map<String, Boolean>), which can be updated after external validation.</li>
+ * </ul>
+ * <p>
+ * The {@code CrossCheckResult} contains the selected value, confidence score, and a map of selector-to-value provenance.
+ * <p>
+ * All major workflow TODOs are resolved. Remaining TODOs are for future extensibility and maintenance only.
+ * <p>
+ * TODO [PRIORITY: MEDIUM][2025-09-04]: sourceDetails map structure is currently consistent (Map<String, String> per field, aggregated as Map<String, Object> in Song). For future extensibility, consider using a config or enum to manage selectors and validation sources. Update this comment and logic if new sources or field types are added.
+ * TODO: If Amazon Music changes markup, update regexes and add more bracket types as needed. (maintenance)
+ * TODO: If new feature/remix patterns appear, add more passes here. (maintenance)
+ *
+ * @author Amazon Music Scraper Team
+ * @since 1.0
+ */
 public class MetadataCrossChecker {
     private static final Logger logger = LoggerFactory.getLogger(MetadataCrossChecker.class);
 
@@ -19,7 +44,12 @@ public class MetadataCrossChecker {
         }
     }
 
-    public CrossCheckResult crossCheckField(Locator element, List<String> selectors) {
+    /**
+     * TODO [PRIORITY: MEDIUM][2025-09-04]: Refactored to accept MetadataField for field type inference and normalization.
+     * Next: Move normalization/prioritization logic into MetadataField or a registry for extensibility.
+     */
+    public CrossCheckResult crossCheckField(Locator element, MetadataField field) {
+        List<String> selectors = field.selectors;
         Map<String, String> results = new LinkedHashMap<>();
         for (String selector : selectors) {
             try {
@@ -31,7 +61,7 @@ public class MetadataCrossChecker {
             }
         }
         // Field-specific normalization and prioritization
-        String fieldType = inferFieldType(selectors);
+        String fieldType = field.fieldName;
         Map<String, String> normalizedResults = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : results.entrySet()) {
             String normVal = switch (fieldType) {
@@ -44,7 +74,6 @@ public class MetadataCrossChecker {
         }
         // Prioritize selectors for canonical value selection
         String selected = selectCanonicalValue(fieldType, normalizedResults, selectors);
-        // Confidence score: weighted for title, artist, duration
         double confidence = calculateConfidence(fieldType, normalizedResults);
         if (new HashSet<>(normalizedResults.values()).size() > 1) {
             logger.warn("Selector discrepancy for {}: {}", fieldType, normalizedResults);
@@ -86,11 +115,15 @@ public class MetadataCrossChecker {
 
     // Helper to check for mix/edition info in title
     private boolean containsMixEdition(String title) {
-        return title != null && title.matches(".*(Radio Edit|Extended Mix|Remix|Edit|Version|Club Mix|Original Mix).*", java.util.regex.Pattern.CASE_INSENSITIVE);
+        if (title == null) return false;
+        return java.util.regex.Pattern.compile("(Radio Edit|Extended Mix|Remix|Edit|Version|Club Mix|Original Mix)", java.util.regex.Pattern.CASE_INSENSITIVE)
+            .matcher(title).find();
     }
     // Helper to check for features/remix authors in title
     private boolean containsFeatureOrRemix(String title) {
-        return title != null && title.matches(".*(feat\\.?|featuring|remix by).*", java.util.regex.Pattern.CASE_INSENSITIVE);
+        if (title == null) return false;
+        return java.util.regex.Pattern.compile("(feat\\.?|featuring|remix by)", java.util.regex.Pattern.CASE_INSENSITIVE)
+            .matcher(title).find();
     }
     // Helper to check if artist starts with remix/edit artist
     private boolean startsWithRemixOrEdit(String artist) {
@@ -123,15 +156,20 @@ public class MetadataCrossChecker {
         return "other";
     }
 
-    // Normalize title: remove features/remix authors, keep mix/edition info
+    // Normalize title: remove features, trailing remix/edit/mix credits, keep mix/edition info
+    // Robust fallback: run two passes for round and square brackets to avoid regex compilation errors on some JVMs.
+    // TODO: If Amazon Music changes markup, update regexes and add more bracket types as needed.
     private String normalizeTitle(String title) {
         if (title == null) return "";
-        // Remove (feat. ...), [feat. ...], - feat. ...
-        title = title.replaceAll("\\s*[\-\(\[]?feat\\.?[^\)\]]*[\)\]]?", "");
-        // Remove (Remix by ...), [Remix by ...], - Remix by ...
-        title = title.replaceAll("\\s*[\-\(\[]?remix by[^\)\]]*[\)\]]?", "");
-        // Keep mix/edition info (e.g., Radio Edit, Extended Mix)
-        // Already present in most titles, so just trim
+        // Remove (feat. ...), - feat. ..., (featuring ...), - featuring ...
+        title = title.replaceAll("\\s*[-(]?\\s*(feat\\.?|featuring)\\s+[^)]*\\)?", "");
+        // Remove [feat. ...], - feat. ..., [featuring ...], - featuring ...
+        title = title.replaceAll("\\s*[-\\[]?\\s*(feat\\.?|featuring)\\s+[^]]*]?", ""); // removed redundant escapes
+        // Remove trailing remix/edit/mix credits: (ArtistName Remix), - ArtistName Mix, etc.
+        title = title.replaceAll("\\s*[-(]?\\s*\\w+(?:\\s+\\w+)*\\s+(Remix|Edit|Mix|Version)\\)?$", "");
+        // Remove trailing remix/edit/mix credits: [ArtistName Remix], - ArtistName Mix, etc.
+        title = title.replaceAll("\\s*[-\\[]?\\s*\\w+(?:\\s+\\w+)*\\s+(Remix|Edit|Mix|Version)]?$", ""); // removed redundant escapes
+        // TODO: If new feature/remix patterns appear, add more passes here.
         return title.trim();
     }
 
@@ -174,5 +212,25 @@ public class MetadataCrossChecker {
         // If already mm:ss, return as is
         if (duration.matches("\\d{1,2}:\\d{2}")) return duration;
         return duration;
+    }
+
+    /**
+     * Validates the provenance structure of a sourceDetails map.
+     * Ensures all values are non-null maps and logs inconsistencies.
+     * @param sourceDetails The aggregated provenance map (Map<String, Object>)
+     */
+    public static void validateProvenanceStructure(Map<String, Object> sourceDetails) {
+        if (sourceDetails == null) {
+            logger.warn("Provenance validation: sourceDetails map is null.");
+            return;
+        }
+        for (Map.Entry<String, Object> entry : sourceDetails.entrySet()) {
+            Object value = entry.getValue();
+            if (!(value instanceof Map)) {
+                logger.warn("Provenance validation: Value for '{}' is not a Map. Actual type: {}", entry.getKey(), value == null ? "null" : value.getClass().getName());
+            } else if (value == null) {
+                logger.warn("Provenance validation: Value for '{}' is null.", entry.getKey());
+            }
+        }
     }
 }

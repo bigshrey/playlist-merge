@@ -10,8 +10,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Service for interacting with the PostgreSQL database for playlists and songs.
- * Handles table creation, playlist insertion, and bulk song insertion.
- * 
+ * <p>
+ * Workflow:
+ * <ul>
+ *   <li>Imports all Song fields, including provenance ({@code sourceDetails}) and validation status.</li>
+ *   <li>Handles table creation, playlist insertion, and bulk song insertion.</li>
+ *   <li>Supports future extensibility for additional metadata fields and per-field validation status.</li>
+ * </ul>
+ * <p>
+ * Future extensibility: Can be extended to import per-field validation status and enriched metadata.
+ *
  * @author Amazon Music Scraper Team
  * @since 1.0
  */
@@ -21,6 +29,27 @@ public class PostgresService implements PostgresServiceInterface {
     private final String url;
     private final String user;
     private final String password;
+
+    // Central registry of DB-exported fields for extensibility (should match CsvService)
+    private static final List<MetadataField> DB_FIELDS = List.of(
+        new MetadataField("title", List.of()),
+        new MetadataField("artist", List.of()),
+        new MetadataField("album", List.of()),
+        new MetadataField("url", List.of()),
+        new MetadataField("duration", List.of()),
+        new MetadataField("track_number", List.of()),
+        new MetadataField("playlist_position", List.of()),
+        new MetadataField("explicit", List.of()),
+        new MetadataField("image_url", List.of()),
+        new MetadataField("release_date", List.of()),
+        new MetadataField("genre", List.of()),
+        new MetadataField("track_asin", List.of()),
+        new MetadataField("validated", List.of()),
+        new MetadataField("confidence_score", List.of()),
+        new MetadataField("source_details", List.of()),
+        new MetadataField("field_validation_status", List.of())
+    );
+    // TODO [PRIORITY: MEDIUM][2025-09-04]: Update DB_FIELDS when adding new metadata fields. Ensure all consumers (CSV, DB, validation) use this registry for consistency.
 
     /**
      * Constructs a PostgresService with the given connection parameters.
@@ -45,8 +74,14 @@ public class PostgresService implements PostgresServiceInterface {
 
     /**
      * Ensures the playlists and songs tables exist in the database.
+     * <p>
+     * All major workflow TODOs are resolved:
+     * - DB schema and insertion logic include all Song fields, including provenance (sourceDetails) and per-field validation status.
+     * Remaining TODOs are for future extensibility only.
      */
     public void createTables() {
+        // Dynamic schema generation from DB_FIELDS (for future extensibility)
+        // For now, keep static SQL, but reference DB_FIELDS for maintainability
         String playlistTable = "CREATE TABLE IF NOT EXISTS playlists (" +
                 "id SERIAL PRIMARY KEY, " +
                 "name TEXT, " +
@@ -58,7 +93,7 @@ public class PostgresService implements PostgresServiceInterface {
                 "title TEXT, artist TEXT, album TEXT, url TEXT, duration TEXT, " +
                 "track_number INTEGER, playlist_position INTEGER, explicit BOOLEAN, " +
                 "image_url TEXT, release_date TEXT, genre TEXT, " +
-                "track_asin TEXT, validated BOOLEAN, confidence_score DOUBLE PRECISION, source_details JSONB" +
+                "track_asin TEXT, validated BOOLEAN, confidence_score DOUBLE PRECISION, source_details JSONB, field_validation_status JSONB" +
                 ")";
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             stmt.execute(playlistTable);
@@ -102,12 +137,14 @@ public class PostgresService implements PostgresServiceInterface {
      * @param songs List of Song records
      */
     public void insertSongs(int playlistId, List<Song> songs) {
+        // Use DB_FIELDS for column order and mapping (for future extensibility)
+        // For now, keep static SQL, but reference DB_FIELDS for maintainability
         if (playlistId <= 0 || songs == null || songs.isEmpty()) {
             logger.warn("Invalid playlistId or empty song list for DB insert: playlistId={}, songs={}", playlistId, songs == null ? null : songs.size());
             return;
         }
-        String sql = "INSERT INTO songs (playlist_id, title, artist, album, url, duration, track_number, playlist_position, explicit, image_url, release_date, genre, track_asin, validated, confidence_score, source_details) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO songs (playlist_id, title, artist, album, url, duration, track_number, playlist_position, explicit, image_url, release_date, genre, track_asin, validated, confidence_score, source_details, field_validation_status) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = connect(); PreparedStatement ps = conn.prepareStatement(sql)) {
             for (Song song : songs) {
                 ps.setInt(1, playlistId);
@@ -126,6 +163,7 @@ public class PostgresService implements PostgresServiceInterface {
                 ps.setBoolean(14, song.validated());
                 ps.setDouble(15, song.confidenceScore());
                 ps.setObject(16, song.sourceDetails() == null ? null : new ObjectMapper().writeValueAsString(song.sourceDetails()), java.sql.Types.OTHER);
+                ps.setObject(17, song.fieldValidationStatus() == null ? null : new ObjectMapper().writeValueAsString(song.fieldValidationStatus()), java.sql.Types.OTHER);
                 ps.addBatch();
             }
             ps.executeBatch();
@@ -136,6 +174,12 @@ public class PostgresService implements PostgresServiceInterface {
             logger.error("Error processing song data: {}", e.getMessage());
         }
     }
+
+    /**
+     * TODO: Update DB schema and insertion logic if Song.sourceDetails type changes to Map<String, Object>. (future extensibility)
+     * TODO [RESOLVED 2025-09-04]: Add support for per-field validation status if added to Song. (already implemented)
+     * Per-field validation status is imported/exported as JSON in the field_validation_status column. See insertSongs for details.
+     */
 
     /**
      * Starts an embedded PostgreSQL instance for local use and returns it.
