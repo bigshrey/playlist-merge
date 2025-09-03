@@ -109,24 +109,25 @@
                 </executions>
             </plugin>
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.1.0</version>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                    <show>private</show>
+                    <nohelp>true</nohelp>
+                    <failOnError>false</failOnError>
+                    <additionalJOptions>
+                        <additionalJOption>-Xdoclint:none</additionalJOption>
+                    </additionalJOptions>
+                </configuration>
                 <executions>
                     <execution>
-                        <id>playwright-install</id>
-                        <phase>prepare-package</phase>
+                        <id>attach-javadocs</id>
                         <goals>
-                            <goal>exec</goal>
+                            <goal>jar</goal>
                         </goals>
-                        <configuration>
-                            <executable>npx</executable>
-                            <workingDirectory>${project.basedir}</workingDirectory>
-                            <arguments>
-                                <argument>playwright</argument>
-                                <argument>install</argument>
-                            </arguments>
-                        </configuration>
                     </execution>
                 </executions>
             </plugin>

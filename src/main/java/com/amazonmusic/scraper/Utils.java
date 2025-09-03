@@ -7,6 +7,9 @@ import java.util.concurrent.Callable;
 
 /**
  * Utility class for common helper methods used in scraping and file operations.
+ * 
+ * @author Amazon Music Scraper Team
+ * @since 1.0
  */
 public class Utils {
     private static final Logger logger = LoggerFactory.getLogger(Utils.class);

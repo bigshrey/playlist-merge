@@ -13,6 +13,9 @@ import java.util.*;
 /**
  * Service for scraping Amazon Music playlists and songs using Playwright.
  * Handles navigation, robust element selection, and retry logic.
+ * 
+ * @author Amazon Music Scraper Team
+ * @since 1.0
  */
 public class ScraperService implements ScraperServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(ScraperService.class);
@@ -78,6 +81,21 @@ public class ScraperService implements ScraperServiceInterface {
         Utils.retryPlaywrightAction(() -> {
             String[] candidates = new String[]{
                 "role=row",
+                "[data-testid='song-row']",
+                "[data-testid='track-row']",
+                "music-track-list-row",
+                ".music-track-list-row",
+                "music-image-row",
+                ".music-image-row",
+                ".track-list__item",
+                ".song-item",
+                ".track-item",
+                "[class*='track-row']",
+                "[class*='song-row']",
+                "[class*='TrackRow']",
+                "[class*='SongRow']",
+                "tr[role='row']",
+                "div[role='row']",
                 ".song-row",
                 ".trackList__item",
                 ".tracklist__item",
@@ -95,6 +113,33 @@ public class ScraperService implements ScraperServiceInterface {
                 "div.tracklist-row",
                 "div.track-list-row"
             };
+            logger.info("Page title: {}", page.title());
+            logger.info("Current URL: {}", page.url());
+            logger.info("Page loaded, looking for song elements...");
+            // Probe each selector for debug visibility
+            for (String sel : candidates) {
+                try {
+                    if (sel.equals("role=row")) {
+                        try {
+                            Locator r = page.getByRole(com.microsoft.playwright.options.AriaRole.ROW);
+                            if (r != null && r.count() > 0) {
+                                logger.info("Debug probe: selector 'role=row' found {} elements", r.count());
+                            } else {
+                                logger.debug("Debug probe: selector 'role=row' found 0 elements");
+                            }
+                        } catch (Exception ignored) {}
+                    } else {
+                        try {
+                            int count = page.locator(sel).count();
+                            if (count > 0) logger.info("Debug probe: selector '{}' found {} elements", sel, count);
+                            else logger.debug("Debug probe: selector '{}' found 0 elements", sel);
+                        } catch (Exception ignored) {
+                            logger.debug("Debug probe: selector '{}' threw during probe", sel);
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
             boolean found = false;
             for (String sel : candidates) {
                 try {
@@ -114,7 +159,12 @@ public class ScraperService implements ScraperServiceInterface {
                     }
                 } catch (Exception ignored) {}
             }
-            if (!found) throw new RuntimeException("No song element selectors matched");
+            if (!found) {
+                // As a fallback, wait for either content or an empty playlist indication
+                if (!waitForPlaylistContent(page, 5000)) {
+                    throw new RuntimeException("No song element selectors matched");
+                }
+            }
             return true;
         }, 3, "wait for playlist content");
 
@@ -167,6 +217,20 @@ public class ScraperService implements ScraperServiceInterface {
         // If not, probe several CSS selectors and pick the first that actually matches elements
         if (songLocator == null) {
             String[] selectors = new String[]{
+                "[data-testid='song-row']",
+                "[data-testid='track-row']",
+                "music-track-list-row",
+                "music-image-row",
+                ".music-track-list-row",
+                ".track-list__item",
+                ".song-item",
+                ".track-item",
+                "[class*='track-row']",
+                "[class*='song-row']",
+                "[class*='TrackRow']",
+                "[class*='SongRow']",
+                "tr[role='row']",
+                "div[role='row']",
                 ".song-row",
                 ".trackList__item",
                 ".tracklist__item",
@@ -197,19 +261,63 @@ public class ScraperService implements ScraperServiceInterface {
             logger.info("Found {} song elements. Beginning detailed scraping.", songLocator.count());
             for (int i = 0; i < songLocator.count(); i++) {
                 Locator songEl = songLocator.nth(i);
-                String title = "";
-                String artist = "";
-                String album = "";
-                String url = "";
-                String duration = "";
+                // per-song fields (declare early so helper extraction can assign them)
+                String title = null;
+                String artist = null;
+                String album = null;
+                String url = null;
+                String duration = null;
                 Integer trackNumber = null;
                 Integer playlistPosition = i + 1;
                 Boolean explicit = null;
-                String imageUrl = "";
-                String releaseDate = "";
-                String genre = "";
+                String imageUrl = null;
+                String releaseDate = null;
+                String genre = null;
+
+                boolean usedImageRow = false;
+                // If this is the music-image-row component, extract fields using its internal structure
                 try {
-                    // Title: try several likely title selectors, then fall back to the first descriptive anchor
+                    Object tagObj = songEl.evaluate("el => (el && el.tagName) ? el.tagName.toLowerCase() : null");
+                    if (tagObj != null && "music-image-row".equals(tagObj.toString())) {
+                        usedImageRow = true;
+                         try {
+                             // Title anchor is in .content .col1 a
+                             Locator t = songEl.locator(".content .col1 a, music-link a");
+                             if (t != null && t.count() > 0) title = t.first().innerText();
+                         } catch (Exception ignored) {}
+                        try {
+                            Locator ar = songEl.locator(".content .col2 a, .content .col2 span, music-link[kind=\"secondary\"] a");
+                            if (ar != null && ar.count() > 0) artist = ar.first().innerText();
+                        } catch (Exception ignored) {}
+                        try {
+                            Locator al = songEl.locator(".content .col3 a, .content .col3 span");
+                            if (al != null && al.count() > 0) album = al.first().innerText();
+                        } catch (Exception ignored) {}
+                        try {
+                            Locator du = songEl.locator(".content .col4 span, .content .col4");
+                            if (du != null && du.count() > 0) duration = du.first().innerText();
+                        } catch (Exception ignored) {}
+                        try {
+                            Locator imgEl = songEl.locator("music-image img, img");
+                            if (imgEl != null && imgEl.count() > 0) imageUrl = imgEl.first().getAttribute("src");
+                        } catch (Exception ignored) {}
+                        try {
+                            Locator link = songEl.locator(".content .col1 a, a");
+                            if (link != null && link.count() > 0) {
+                                String ahref = link.first().getAttribute("href");
+                                if (ahref != null && !ahref.isBlank()) url = ahref;
+                            }
+                        } catch (Exception ignored) {}
+                     }
+                 } catch (Exception ignored) {}
+                // Normalize relative URL to absolute
+                try {
+                    if (url != null && url.startsWith("/")) {
+                        url = "https://music.amazon.com.au" + url;
+                    }
+                } catch (Exception ignored) {}
+                // Title: try several likely title selectors, then fall back to the first descriptive anchor
+                try {
                     String[] titleSelectors = new String[]{".title", ".track-title", ".song-title", "[data-test='track-title']", "h3", ".trackName", ".track-name", ".trackTitle", "a[data-test='title']"};
                     for (String s : titleSelectors) {
                         try {
@@ -282,20 +390,20 @@ public class ScraperService implements ScraperServiceInterface {
                 try {
                     // URL: prefer a track/album link if not already set
                     if (url == null || url.isEmpty()) {
-                        try {
-                            Locator anchors = songEl.locator("a");
-                            for (int ai = 0; ai < anchors.count(); ai++) {
-                                try {
-                                    Locator a = anchors.nth(ai);
-                                    String ahref = a.getAttribute("href");
-                                    if (ahref != null && (ahref.contains("/tracks") || ahref.contains("/albums") || ahref.contains("/playlist") || ahref.contains("/artists") || ahref.contains("/playlists") )) {
-                                        url = ahref;
-                                        break;
-                                    }
-                                } catch (Exception ignored) {}
-                            }
-                        } catch (Exception ignored) {}
-                    }
+                         try {
+                             Locator anchors = songEl.locator("a");
+                             for (int ai = 0; ai < anchors.count(); ai++) {
+                                 try {
+                                     Locator a = anchors.nth(ai);
+                                     String ahref = a.getAttribute("href");
+                                     if (ahref != null && (ahref.contains("/tracks") || ahref.contains("/albums") || ahref.contains("/playlist") || ahref.contains("/artists") || ahref.contains("/playlists") )) {
+                                         url = ahref;
+                                         break;
+                                     }
+                                 } catch (Exception ignored) {}
+                             }
+                         } catch (Exception ignored) {}
+                     }
                 } catch (Exception ignored) {}
 
                 try {
@@ -349,19 +457,22 @@ public class ScraperService implements ScraperServiceInterface {
                     logger.warn("Skipping song with empty title in playlist: {}", playlistName);
                     continue;
                 }
-                songs.add(new Song(
-                    title.trim(),
-                    artist == null ? "" : artist.trim(),
-                    album == null ? "" : album.trim(),
-                    url == null ? "" : url.trim(),
-                    duration == null ? "" : duration.trim(),
-                    trackNumber,
-                    playlistPosition,
-                    explicit,
-                    imageUrl == null ? "" : imageUrl.trim(),
-                    releaseDate == null ? "" : releaseDate.trim(),
-                    genre == null ? "" : genre.trim()
-                ));
+                if (usedImageRow) {
+                    logger.info("Parsed music-image-row at position {} -> title='{}', artist='{}', album='{}', duration='{}'", playlistPosition, title, artist, album, duration);
+                }
+                 songs.add(new Song(
+                     title.trim(),
+                     artist == null ? "" : artist.trim(),
+                     album == null ? "" : album.trim(),
+                     url == null ? "" : url.trim(),
+                     duration == null ? "" : duration.trim(),
+                     trackNumber,
+                     playlistPosition,
+                     explicit,
+                     imageUrl == null ? "" : imageUrl.trim(),
+                     releaseDate == null ? "" : releaseDate.trim(),
+                     genre == null ? "" : genre.trim()
+                 ));
             }
         }
 
@@ -1107,4 +1218,22 @@ public class ScraperService implements ScraperServiceInterface {
             logger.warn("Unexpected error saving debug artifacts for {}: {}", baseName, e.getMessage());
         }
     }
+
+    // Wait for either song elements to appear or an empty-playlist message
+    private boolean waitForPlaylistContent(Page page, int timeoutMs) {
+        try {
+            page.waitForFunction(
+                "() => {" +
+                "  const songElements = document.querySelectorAll('[data-testid=\"song-row\"], .track-row, music-track-list-row, .music-track-list-row, .track-list__item, music-image-row, .music-image-row');" +
+                 "  const emptyMessage = document.querySelector('[data-testid=\"empty-playlist\"], .empty-state');" +
+                 "  return songElements.length > 0 || emptyMessage !== null;" +
+                 "}",
+                 new Page.WaitForFunctionOptions().setTimeout(timeoutMs)
+             );
+             return true;
+         } catch (Exception e) {
+            logger.warn("Timeout waiting for playlist content: {}", e.getMessage());
+             return false;
+         }
+     }
 }

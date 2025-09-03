@@ -10,6 +10,9 @@ import java.nio.file.Paths;
 /**
  * Service for interacting with the PostgreSQL database for playlists and songs.
  * Handles table creation, playlist insertion, and bulk song insertion.
+ * 
+ * @author Amazon Music Scraper Team
+ * @since 1.0
  */
 @SuppressWarnings({"SqlResolve", "unused"})
 public class PostgresService implements PostgresServiceInterface {

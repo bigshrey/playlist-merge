@@ -14,6 +14,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 
+/**
+ * Implementation of authentication services for Amazon Music scraping.
+ * Handles browser context management, session persistence, and automated sign-in workflows.
+ * 
+ * @author Amazon Music Scraper Team
+ * @since 1.0
+ */
 public final class AuthService implements AuthServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
@@ -47,8 +54,18 @@ public final class AuthService implements AuthServiceInterface {
         try {
             Files.createDirectories(Paths.get("scraped-data"));
         } catch (IOException ignored) {}
-        Browser.NewContextOptions contextOptions = new Browser.NewContextOptions().setViewportSize(1920, 1080)
-            .setRecordHarPath(Paths.get("scraped-data", "session.har"));
+        Browser.NewContextOptions contextOptions = new Browser.NewContextOptions().setViewportSize(1920, 1080);
+        try {
+            String os = System.getProperty("os.name").toLowerCase();
+            if (!os.contains("windows") || Boolean.parseBoolean(System.getProperty("FORCE_HAR_RECORDING"))) {
+                contextOptions.setRecordHarPath(Paths.get("scraped-data", "session.har"));
+                logger.info("HAR recording enabled for debugging.");
+            } else {
+                logger.info("HAR recording disabled on Windows by default to avoid Playwright/Node conflicts.");
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to configure HAR recording: {}. Proceeding without HAR.", e.getMessage());
+        }
         java.nio.file.Path storageFile = java.nio.file.Paths.get(storagePath);
         if (java.nio.file.Files.exists(storageFile)) {
             // Try to sanity-check the storage state file before handing it to Playwright.
@@ -94,7 +111,13 @@ public final class AuthService implements AuthServiceInterface {
              }
              // Clear storageStatePath and retry
              try {
-                 Browser.NewContextOptions fresh = new Browser.NewContextOptions().setViewportSize(1920, 1080).setRecordHarPath(Paths.get("scraped-data", "session.har"));
+                 Browser.NewContextOptions fresh = new Browser.NewContextOptions().setViewportSize(1920, 1080);
+                 try {
+                     String os2 = System.getProperty("os.name").toLowerCase();
+                     if (!os2.contains("windows") || Boolean.parseBoolean(System.getProperty("FORCE_HAR_RECORDING"))) {
+                         fresh.setRecordHarPath(Paths.get("scraped-data", "session.har"));
+                     }
+                 } catch (Exception ignored) {}
                  return browser.newContext(fresh);
              } catch (Exception ex) {
                  logger.error("Failed to create a fresh browser context: {}", ex.getMessage());

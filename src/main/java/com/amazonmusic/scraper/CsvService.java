@@ -11,6 +11,9 @@ import java.util.List;
 /**
  * Service for exporting song data to CSV files using OpenCSV.
  * Handles safe string conversion and logging.
+ * 
+ * @author Amazon Music Scraper Team
+ * @since 1.0
  */
 public class CsvService implements CsvServiceInterface {
     private static final Logger logger = LoggerFactory.getLogger(CsvService.class);

@@ -8,15 +8,22 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Map;
 
 /**
  * Main entry point for the Amazon Music playlist scraper.
+ * This application scrapes playlists from Amazon Music and exports them to CSV files and a PostgreSQL database.
+ * 
+ * @author Amazon Music Scraper Team
+ * @since 1.0
  */
 public class Main {
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
 
-    // Set process environment variables for this JVM (best-effort, uses reflection).
+    /**
+     * Sets process environment variables for this JVM (best-effort, uses reflection).
+     * Configures debug system properties that will be used by ScraperService when
+     * environment variables are not available.
+     */
     private static void setEnvVarsAtStartup() {
         // Modifying System.getenv() via reflection is blocked by the Java module system on modern JVMs.
         // Use Java system properties as a reliable fallback; ScraperService will read from system
@@ -48,6 +55,8 @@ public class Main {
      * Ensures the user is signed in, running sign-in workflow if needed.
      * @param context Playwright browser context
      * @param page Playwright page instance
+     * @param authService Authentication service for handling sign-in workflows
+     * @param scraperService Scraper service for checking sign-in status
      */
     private static void ensureSignedIn(BrowserContext context, Page page, AuthServiceInterface authService, ScraperServiceInterface scraperService) {
         boolean sessionExists = java.nio.file.Files.exists(java.nio.file.Paths.get("scraped-data/storage-state.json"));
@@ -76,7 +85,9 @@ public class Main {
     /**
      * Scrapes playlists and exports songs to CSV and database.
      * @param page Playwright page instance
-     * @param postgresService PostgresService instance
+     * @param postgresService PostgresService instance for database operations
+     * @param scraperService Scraper service for playlist and song extraction
+     * @param csvService CSV service for exporting songs to CSV files
      */
     private static void scrapeAndExportPlaylists(Page page, PostgresServiceInterface postgresService, ScraperServiceInterface scraperService, CsvServiceInterface csvService) {
         // Navigate using ScraperService which contains robust and maintained navigation heuristics
@@ -100,6 +111,33 @@ public class Main {
                 logger.error("Failed to save playlist links debug artifacts: {}", e.getMessage());
             }
             return;
+        }
+
+        // TEMPORARY DEBUG: optionally process only the first playlist to speed up debugging runs
+        String singleTest = System.getProperty("SCRAPER_SINGLE_PLAYLIST_TEST", System.getenv().getOrDefault("SCRAPER_SINGLE_PLAYLIST_TEST", "false"));
+        if (Boolean.parseBoolean(singleTest) && !playlists.isEmpty()) {
+            var testPlaylist = playlists.get(0);
+            logger.info("Testing with single playlist: {}", testPlaylist.get("name"));
+            try {
+                var pl = scraperService.scrapePlaylist(page, testPlaylist.get("url"));
+                var safeName = Utils.sanitizeFilename(testPlaylist.get("name"));
+                if (!pl.songs().isEmpty()) {
+                    try {
+                        csvService.writeSongsToCSV(pl.songs(), safeName + ".csv");
+                    } catch (IOException e) {
+                        logger.error("Failed to write playlist CSV '{}': {}", safeName, e.getMessage());
+                    }
+                    int playlistId = postgresService.insertPlaylist(testPlaylist.get("name"), testPlaylist.get("url"));
+                    if (playlistId > 0) {
+                        try { postgresService.insertSongs(playlistId, pl.songs()); } catch (Exception e) { logger.error("Failed to insert songs into DB: {}", e.getMessage()); }
+                    }
+                } else {
+                    logger.warn("Test playlist '{}' returned no songs.", testPlaylist.get("name"));
+                }
+            } catch (Exception e) {
+                logger.error("Error scraping test playlist '{}': {}", testPlaylist.get("url"), e.getMessage());
+            }
+            return; // exit after single-playlist test when enabled
         }
 
         var allSongs = new ArrayList<Song>();
