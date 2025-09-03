@@ -46,8 +46,8 @@ public class Main {
      * @return PostgresServiceInterface
      */
     private static PostgresServiceInterface createPostgresService(EmbeddedPostgres postgres) {
+        // EmbeddedPostgres does not expose a getHost() method; the service listens on localhost.
         String host = "localhost";
-        try { host = postgres.getHost(); } catch (Throwable ignored) {}
         int port = postgres.getPort();
         String dbUrl = String.format("jdbc:postgresql://%s:%d/postgres", host, port);
         String dbUser = "postgres";
@@ -216,7 +216,6 @@ public class Main {
                     postgres = PostgresService.startEmbedded(pgDataDir, 0);
                     // read actual host/port assigned at runtime
                     String host = "localhost";
-                    try { host = postgres.getHost(); } catch (Throwable ignored) {}
                     int port = postgres.getPort();
                     // write IntelliJ datasource files using runtime host/port
                     writeIntelliJDataSource(host, port, pgDataDir);
@@ -246,7 +245,6 @@ public class Main {
             authService.init();
             postgres = PostgresService.startEmbedded(pgDataDir, 0);
             String host = "localhost";
-            try { host = postgres.getHost(); } catch (Throwable ignored) {}
             int port = postgres.getPort();
             // write IntelliJ datasource files using runtime host/port
             writeIntelliJDataSource(host, port, pgDataDir);
