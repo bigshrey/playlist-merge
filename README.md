@@ -10,6 +10,7 @@
 - **Validate and update all related documentation and comments after each change.**
 - **After every code change, review all affected files for outdated documentation and comments.**
 - **Compare the current implementation against the README log summary and outstanding TODOs.**
+- **Compare the README log summary and outstanding TODOs against the current implementation.**
 - **Update Javadocs, inline comments, and README sections to accurately reflect the latest code and workflow.**
 - **Log the validation and any documentation updates in the README under the Agentic Change Iteration Summary.**
 - **If any discrepancies or outdated documentation are found, resolve them immediately and log the fix.**
@@ -108,5 +109,6 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
         - [TODO] Compare the current implementation against the README log summary and outstanding TODOs.
         - [TODO] Update Javadocs, inline comments, and README sections to accurately reflect the latest code and workflow.
         - [TODO] Log the validation and any documentation updates in the README under the Agentic Change Iteration Summary.
-        - [TODO] If any discrepancies or outdated documentation are found, resolve them immediately and log the fix.
 
+
+- **[2025-09-04] Log: readme out of date, update whole readme
