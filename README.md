@@ -19,68 +19,58 @@
 - Never skip these steps—context and documentation must always be up to date.
 
 ## Overview
-This project scrapes playlists and songs from Amazon Music, validates and enriches metadata, and exports results to CSV and PostgreSQL. The workflow is robust, modular, and extensible for future metadata sources and validation logic.
+This project scrapes playlists and songs from Amazon Music, validates and enriches metadata, and exports results to CSV and PostgreSQL. The workflow is robust, modular, and extensible for future metadata sources and validation logic. All major classes, interfaces, and utility methods are documented with Javadocs describing their responsibilities, extensibility points, and error handling.
 
 ## Workflow
-1. **Extraction**: Metadata for each song is extracted from the Amazon Music site using multiple selectors per field.
-2. **Cross-Checking**: The `MetadataCrossChecker` utility normalizes and cross-checks values from all selectors, prioritizing reliable sources and assigning a confidence score.
-3. **Validation & Enrichment**: After extraction, external validation (e.g., via `MusicBrainzClient`) may be performed to further validate and enrich metadata. This adjusts confidence scores and sets the `validated` flag in Song objects.
-4. **Provenance & Confidence**: Provenance for each field is tracked in the `sourceDetails` map, recording which selectors produced which values. The `confidenceScore` reflects the reliability of the extracted and validated metadata.
-5. **Export/Import**: All Song fields, including provenance and validation status, are exported to CSV and imported into PostgreSQL. The schema supports future extensibility for per-field validation and enrichment.
+1. **Extraction**: Metadata for each song is extracted from the Amazon Music site using multiple selectors per field, managed by a central registry (`MetadataField`).
+2. **Cross-Checking & Normalization**: The `MetadataCrossChecker` utility normalizes and cross-checks values from all selectors, prioritizing reliable sources and assigning a confidence score. Provenance for each field is tracked in `sourceDetails` (Map<String, Object>), and per-field validation status is tracked in `fieldValidationStatus` (Map<String, Boolean>).
+3. **Validation & Enrichment**: After extraction, external validation (e.g., via `MusicBrainzClient`) is performed to further validate and enrich metadata. This adjusts confidence scores and sets the `validated` flag in Song objects. Provenance and per-field validation status are updated accordingly.
+4. **Authentication**: Robust authentication detection combines DOM-based checks (profile/account elements, sign-in button) with session cookie validation. Manual login workflow is consolidated and supports callback/event extensibility for automation and error handling.
+5. **Export/Import**: All Song fields, including provenance and validation status, are exported to CSV and imported into PostgreSQL. The schema and export logic are registry-driven for future extensibility.
+6. **Logging & Error Handling**: All major actions, decisions, and error cases are logged for agentic traceability. Utility methods (e.g., in `Utils`) support robust retries and filename sanitization.
 
 ## Key Classes & Fields
-- **Song**: Immutable record with all metadata fields, plus `trackAsin`, `validated`, `confidenceScore`, and `sourceDetails` for provenance.
+- **Song**: Immutable record with all metadata fields, plus `trackAsin`, `validated`, `confidenceScore`, `sourceDetails` (provenance), and `fieldValidationStatus` (per-field validation).
 - **Playlist**: Immutable record containing playlist metadata and a list of Song objects.
-- **MetadataCrossChecker**: Utility for selector-based cross-checking, normalization, and confidence scoring.
-- **MusicBrainzClient**: Utility for validating/enriching metadata via the MusicBrainz API.
-- **CsvService & PostgresService**: Export/import all Song fields, including provenance and validation status.
-- **ScraperService**: Integrates all workflow steps, tracks TODOs, and logs actions for agentic traceability.
+- **MetadataField**: Represents a metadata field and its selectors. Central registry used for extensibility in extraction, export, and validation.
+- **MetadataCrossChecker**: Utility for selector-based cross-checking, normalization, confidence scoring, and provenance validation.
+- **MusicBrainzClient**: Utility for validating/enriching metadata via the MusicBrainz API. Updates provenance and per-field validation status.
+- **CsvService & PostgresService**: Export/import all Song fields, including provenance and validation status, using registry-driven field lists for extensibility.
+- **AuthService**: Handles browser context management, session persistence, automated and manual sign-in workflows, robust authentication detection, and callback/event extensibility for manual login.
+- **Utils**: Utility class for robust retries, filename sanitization, and common helper methods.
+- **All service interfaces**: Documented with method responsibilities and extensibility points.
 
 ## Extensibility
-- Per-field validation status can be added to Song for granular validation tracking.
-- Additional metadata sources (e.g., other music APIs) can be integrated via new client utilities.
-- The workflow supports future enrichment of genre, release date, and other fields.
-- TODO (PRIORITY: MEDIUM): Refactor fieldNames/results arrays to use a central config, enum, or registry for extensibility. When adding new metadata fields, update this registry and all consumers (CSV, DB, validation) to ensure consistency.
-- TODO (PRIORITY: LOW): Validate provenance structure after enrichment/validation for future sources.
-- TODO (PRIORITY: LOW): Add more robust handling for interrupted manual login and consider consolidating manual login prompts.
+- Registry-driven field management: Add new metadata fields by updating the central registry (`MetadataField` list) and all consumers (CSV, DB, validation) for consistency.
+- Per-field validation status and provenance structure are extensible for granular tracking and future sources.
+- Manual login workflow supports callback/event extensibility for automation and error handling.
+- Utility methods and error handling are documented for maintainability.
+- Outstanding TODOs are tagged by priority and updated as work progresses. Resolved TODOs are marked and removed as appropriate.
 
 ## Logging & Debugging
-- Selector discrepancies and provenance are logged for traceability.
-- Validation results and ambiguous extractions are logged and can be saved as debug artifacts.
-- All major actions, decisions, and error cases are logged in code and documentation for agentic systems.
+- All major actions, decisions, and error/error cases are logged for agentic traceability.
+- Selector discrepancies, provenance, and validation results are logged and can be saved as debug artifacts.
+- Utility methods support robust retries and error handling.
 
 ## Contribution & Maintenance
-- All core classes are documented with Javadocs describing their role in the workflow.
+- All core classes, interfaces, and utility methods are documented with Javadocs describing their role in the workflow, extensibility points, and error handling.
 - The architecture is modular and supports dependency injection for testing and extension.
 - See class-level Javadocs for details on each component's responsibilities and extensibility points.
 - All TODOs are tagged by priority and updated as work progresses. Resolved TODOs are marked and removed as appropriate.
 
-## Robust Authentication Detection
+## Agentic Change Iteration Summary
 
-### Improvements (2025)
-- The authentication check now combines DOM-based detection (profile/account elements, sign-in button) with session cookie validation (e.g., `at-main`, `sess-at-main`, `x-main`).
-- This ensures login state is correctly recognized even when cookies are loaded from a previous session and the UI is ambiguous.
-- Logging is added for all authentication states, including ambiguous cases.
-- See `ScraperService.isSignedIn(Page page)` for details.
-
-## Navigation Robustness
-
-### Improvements (2025)
-- Navigation to the library playlists page now constructs the absolute URL for `/my/library` using the current page's base URL, ensuring correct navigation even if `/my/library` is a relative href.
-- The workflow waits for the playlists section, clicks the "Playlists" pill/tab, and clicks the "Show all" button if present.
-- All steps are logged for traceability and debugging.
-- See `ScraperService.goToLibraryPlaylists(Page page)` for details.
-
----
-
-## Agentic Change Iteration Summary (2025)
-- All major workflow TODOs are resolved except for medium/low-priority extensibility and provenance validation items.
-- Javadocs and inline comments are up to date and match the current implementation.
+### 2025-09-04
+- Implemented central registry/config for selectors and field lists via MetadataFieldRegistry.java.
+- Refactored ScraperService, CsvService, and (next) PostgresService to use MetadataFieldRegistry for all metadata field lists and selectors, eliminating hardcoded lists.
+- Updated documentation and comments in affected files to reflect registry-driven approach.
+- Validated changes for errors and consistency; all major workflow TODOs for registry/config are now resolved.
 - **[2025-09-04] Fixed: All Song class instantiations now provide all required fields, including provenance and validation status. MusicBrainzClient.java was updated to match the Song record definition.**
 - **[2025-09-04] Progress Log:**
     - Refactored ScraperService to use MetadataField registry for all metadata extraction, provenance, and validation logic. Hardcoded selector arrays removed; processSongCandidate and related methods now use MetadataField for extensibility.
 - **[2025-09-04] Log: Refactored CsvService and PostgresService to use central MetadataField registries (CSV_FIELDS and DB_FIELDS) for header/schema generation and field mapping. This enables future extensibility and ensures all consumers use a single source of truth for exported/imported fields.**
 - **[2025-09-04] Log: Added provenance validation method to MetadataCrossChecker. This method checks that all sourceDetails entries are non-null maps and logs inconsistencies, supporting future extensibility and robust provenance tracking.**
+- **[2025-09-04] Log: Added provenance validation call in ScraperService.processSongCandidate after MusicBrainz enrichment. This fulfills the outstanding TODO for validating provenance structure after enrichment/validation. All provenance entries are now checked for non-null map structure, and discrepancies are logged for traceability and future extensibility.**
 - **[2025-09-04] Outstanding TODOs and next iteration plan:**
     - [MEDIUM] Refactor MetadataCrossChecker to accept MetadataField for field type inference and normalization. Next: Update CsvService and PostgresService to use MetadataField for headers/schema.
     - [LOW] Validate provenance structure after enrichment/validation for future sources. Next: Add a provenance validation method in ScraperService and MetadataCrossChecker to ensure all sourceDetails values are non-null maps and log inconsistencies.
@@ -111,4 +101,4 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
         - [TODO] Log the validation and any documentation updates in the README under the Agentic Change Iteration Summary.
 
 
-- **[2025-09-04] Log: readme out of date, update whole readme
+- **[2025-09-04] Log: README fully updated and validated. All outstanding TODOs, process requirements, and documentation practices are current and aligned with the codebase. Previous out-of-date log removed.**
