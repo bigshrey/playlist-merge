@@ -46,7 +46,10 @@ public class Main {
      * @return PostgresServiceInterface
      */
     private static PostgresServiceInterface createPostgresService(EmbeddedPostgres postgres) {
-        String dbUrl = String.format("jdbc:postgresql://localhost:%d/postgres", postgres.getPort());
+        String host = "localhost";
+        try { host = postgres.getHost(); } catch (Throwable ignored) {}
+        int port = postgres.getPort();
+        String dbUrl = String.format("jdbc:postgresql://%s:%d/postgres", host, port);
         String dbUser = "postgres";
         String dbPass = "postgres";
         PostgresService postgresService = new PostgresService(dbUrl, dbUser, dbPass);
@@ -191,48 +194,47 @@ public class Main {
             // Ensure debug env vars are present so debug artifacts are saved during development runs
             setEnvVarsAtStartup();
 
-            // determine mode: args or interactive prompt
-            String mode = (args != null && args.length > 0) ? args[0].trim().toLowerCase() : "";
-            if (mode.isBlank()) {
-                System.out.println("Choose mode:\n  1) db  - start embedded Postgres only\n  2) scrape - run scraping workflow\nEnter choice (db/scrape) or press Enter for 'scrape': ");
-                try {
-                    java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(System.in));
-                    String input = br.readLine();
-                    if (input != null) mode = input.trim().toLowerCase();
-                    if (mode.isBlank()) mode = "scrape";
-                } catch (Exception e) {
-                    mode = "scrape";
-                }
+            // prompt user for mode: 1=db-only, 2=scrape (no CLI args required)
+            String mode = "";
+            System.out.println("Choose mode:\n  1) db  - start embedded Postgres only\n  2) scrape - run scraping workflow\nEnter 1 or 2 (default 2): ");
+            try {
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(System.in));
+                String input = br.readLine();
+                if (input != null) mode = input.trim();
+            } catch (Exception e) {
+                // fall through to default
             }
+            if (mode == null || mode.isBlank()) mode = "2";
 
-            // determine embedded Postgres port (allow override via env or system property)
-            String portStr = System.getProperty("EMBEDDED_PG_PORT", System.getenv().getOrDefault("EMBEDDED_PG_PORT", "5432"));
-            int embeddedPort = 5432;
-            try { embeddedPort = Integer.parseInt(portStr); } catch (Exception ignored) {}
+            // runtime data dir; embedded Postgres will pick an available port if we pass 0
             String pgDataDir = System.getProperty("EMBEDDED_PG_DATA_DIR", "scraped-data/pgdata");
 
-            if (mode.equals("db") || mode.equals("1") || mode.equals("db-only") || mode.equals("database")) {
-                // start embedded DB and allow user to inspect
-                try {
-                    postgres = PostgresService.startEmbedded(pgDataDir, embeddedPort);
-                    // write IntelliJ datasource files so the IDE recognises this DB automatically
-                    writeIntelliJDataSource(embeddedPort, pgDataDir);
-                    PostgresServiceInterface postgresService = createPostgresService(postgres);
-                    String jdbc = String.format("jdbc:postgresql://localhost:%d/postgres", embeddedPort);
-                    System.out.println("Embedded Postgres started.");
-                    System.out.println("JDBC URL: " + jdbc);
-                    System.out.println("DB user: postgres");
-                    System.out.println("DB password: postgres");
-                    System.out.println("Data directory: scraped-data/pgdata");
-                    System.out.println("The DB will keep running until you press Enter. Connect with your DB client to inspect data.");
-                    System.out.println("Press Enter to stop the embedded DB and exit.");
-                    try { System.in.read(); } catch (Exception ignored) {}
-                    return;
-                } catch (Exception e) {
-                    logger.error("Failed to start embedded Postgres in db-only mode: {}", e.getMessage());
-                    throw e;
-                }
-            }
+            if (mode.equals("1") || mode.equalsIgnoreCase("db") || mode.equalsIgnoreCase("db-only") || mode.equalsIgnoreCase("database")) {
+                 // start embedded DB and allow user to inspect
+                 try {
+                    // ask the OS to select a free port by passing 0
+                    postgres = PostgresService.startEmbedded(pgDataDir, 0);
+                    // read actual host/port assigned at runtime
+                    String host = "localhost";
+                    try { host = postgres.getHost(); } catch (Throwable ignored) {}
+                    int port = postgres.getPort();
+                    // write IntelliJ datasource files using runtime host/port
+                    writeIntelliJDataSource(host, port, pgDataDir);
+                    String jdbc = String.format("jdbc:postgresql://%s:%d/postgres", host, port);
+                     System.out.println("Embedded Postgres started.");
+                     System.out.println("JDBC URL: " + jdbc);
+                     System.out.println("DB user: postgres");
+                     System.out.println("DB password: postgres");
+                     System.out.println("Data directory: scraped-data/pgdata");
+                     System.out.println("The DB will keep running until you press Enter. Connect with your DB client to inspect data.");
+                     System.out.println("Press Enter to stop the embedded DB and exit.");
+                     try { int __ = System.in.read(); } catch (Exception ignored) {}
+                     return;
+                 } catch (Exception e) {
+                     logger.error("Failed to start embedded Postgres in db-only mode: {}", e.getMessage());
+                     throw e;
+                 }
+             }
 
             // Default: run full scraping workflow
             // instantiate services at runtime for DI and testability (typed to interfaces)
@@ -242,9 +244,12 @@ public class Main {
 
             // initialize helpers and ensure artifact dirs
             authService.init();
-            postgres = PostgresService.startEmbedded(pgDataDir, embeddedPort);
-            // write IntelliJ datasource files so the IDE recognises this DB automatically
-            writeIntelliJDataSource(embeddedPort, pgDataDir);
+            postgres = PostgresService.startEmbedded(pgDataDir, 0);
+            String host = "localhost";
+            try { host = postgres.getHost(); } catch (Throwable ignored) {}
+            int port = postgres.getPort();
+            // write IntelliJ datasource files using runtime host/port
+            writeIntelliJDataSource(host, port, pgDataDir);
             PostgresServiceInterface postgresService = createPostgresService(postgres);
 
             try (Playwright playwright = Playwright.create()) {
@@ -272,24 +277,26 @@ public class Main {
     }
 
     // Write IntelliJ IDEA Data Source config files (.idea/dataSources.xml and dataSources.local.xml)
-    private static void writeIntelliJDataSource(int port, String dataDir) {
+    private static void writeIntelliJDataSource(String host, int port, String dataDir) {
         try {
             Path idea = Paths.get(".idea");
             if (!Files.exists(idea)) Files.createDirectories(idea);
-            String jdbc = String.format("jdbc:postgresql://localhost:%d/postgres", port);
+            String jdbc = String.format("jdbc:postgresql://%s:%d/postgres", host, port);
             String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                     "<data-sources version=\"21\">\n" +
                     "  <data-source>\n" +
                     "    <name>Embedded Postgres (playlist-merge)</name>\n" +
                     "    <driver-ref>PostgreSQL</driver-ref>\n" +
                     "    <url>" + jdbc + "</url>\n" +
+                    "    <host>" + host + "</host>\n" +
+                    "    <port>" + port + "</port>\n" +
                     "    <user>postgres</user>\n" +
                     "    <password>postgres</password>\n" +
                     "  </data-source>\n" +
                     "</data-sources>\n";
             Files.writeString(idea.resolve("dataSources.xml"), xml);
             Files.writeString(idea.resolve("dataSources.local.xml"), xml);
-            System.out.println("Wrote .idea/dataSources.xml and dataSources.local.xml for IntelliJ Database tool.");
+            System.out.println("Wrote .idea/dataSources.xml and dataSources.local.xml for IntelliJ Database tool (host=" + host + ", port=" + port + ").");
         } catch (Exception e) {
             logger.warn("Failed to write IntelliJ data source files: {}", e.getMessage());
         }

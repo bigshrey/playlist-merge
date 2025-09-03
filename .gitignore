@@ -12,6 +12,10 @@ target/
 *.iml
 *.ipr
 
+### IntelliJ Data Sources (local, don't commit credentials) ###
+.idea/dataSources.local.xml
+.idea/dataSources.xml
+
 ### Eclipse ###
 .apt_generated
 .classpath

@@ -6,6 +6,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 /**
@@ -32,6 +35,14 @@ public class CsvService implements CsvServiceInterface {
         if (filename == null || filename.trim().isEmpty()) {
             logger.warn("Attempted to write CSV with invalid filename: {}", filename);
             throw new IllegalArgumentException("Filename cannot be null or empty");
+        }
+        // ensure scraped-data directory exists and write files into it
+        try {
+            Path outDir = Paths.get("scraped-data");
+            if (!Files.exists(outDir)) Files.createDirectories(outDir);
+            filename = outDir.resolve(filename).toString();
+        } catch (IOException e) {
+            logger.warn("Failed to ensure scraped-data directory exists: {}. Will attempt to write to current directory.", e.getMessage());
         }
         try (CSVWriter writer = new CSVWriter(new FileWriter(filename))) {
             writer.writeNext(new String[]{
