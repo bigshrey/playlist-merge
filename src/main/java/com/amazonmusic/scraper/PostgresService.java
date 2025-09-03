@@ -6,6 +6,7 @@ import java.sql.*;
 import java.util.List;
 import io.zonky.test.db.postgres.embedded.EmbeddedPostgres;
 import java.nio.file.Paths;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * Service for interacting with the PostgreSQL database for playlists and songs.
@@ -124,7 +125,7 @@ public class PostgresService implements PostgresServiceInterface {
                 ps.setString(13, song.trackAsin());
                 ps.setBoolean(14, song.validated());
                 ps.setDouble(15, song.confidenceScore());
-                ps.setObject(16, song.sourceDetails() == null ? null : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(song.sourceDetails()), java.sql.Types.OTHER);
+                ps.setObject(16, song.sourceDetails() == null ? null : new ObjectMapper().writeValueAsString(song.sourceDetails()), java.sql.Types.OTHER);
                 ps.addBatch();
             }
             ps.executeBatch();

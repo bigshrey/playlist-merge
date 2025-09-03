@@ -1,5 +1,6 @@
 package com.amazonmusic.scraper;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opencsv.CSVWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,7 +65,7 @@ public class CsvService implements CsvServiceInterface {
                     safe(song.trackAsin()),
                     Boolean.toString(song.validated()),
                     Double.toString(song.confidenceScore()),
-                    song.sourceDetails() == null ? "" : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(song.sourceDetails())
+                    song.sourceDetails() == null ? "" : new ObjectMapper().writeValueAsString(song.sourceDetails())
                 });
             }
         }

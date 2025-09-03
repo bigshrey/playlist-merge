@@ -186,7 +186,7 @@ public class ScraperService implements ScraperServiceInterface {
                                 String href = safeAttr(link, "href");
                                 String title = safeInnerText(link);
                                 if (href != null && !href.isEmpty() && title != null && !title.isEmpty()) {
-                                    playlists.add(new Playlist(title, href));
+                                    playlists.add(new Playlist(title, href, new ArrayList<>()));
                                     count++;
                                 }
                             } catch (Exception e) {
@@ -202,8 +202,19 @@ public class ScraperService implements ScraperServiceInterface {
                     if (!playlists.isEmpty() && scrapeEmpty) {
                         for (Playlist playlist : playlists) {
                             try {
-                                scrapePlaylistDetails(playlist, page);
-                                safeWait(page, DEFAULT_PLAYLIST_WAIT_MS);
+                                // Scrape details, but do not mutate Playlist (record is immutable)
+                                // If you want to update details, create a new Playlist object
+                                // For now, just log details
+                                logger.info("Scraping details for playlist: {}", playlist.name());
+                                page.navigate(playlist.url());
+                                page.setDefaultTimeout(30_000);
+                                page.setDefaultNavigationTimeout(30_000);
+                                page.waitForLoadState(LoadState.NETWORKIDLE);
+                                safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
+                                String title = safeInnerText(page.locator("h1"));
+                                String description = safeInnerText(page.locator("div[data-testid='description']"));
+                                String imageUrl = safeAttr(page.locator("img[data-testid='playlist-image']"), "src");
+                                logger.info("Playlist details: {} - {} - {}", title, description, imageUrl);
                             } catch (Exception e) {
                                 logger.warn("Error scraping playlist details: {}", e.getMessage());
                             }
@@ -223,35 +234,6 @@ public class ScraperService implements ScraperServiceInterface {
             logger.error("Playwright initialization error: {}", e.getMessage());
         }
         return playlists;
-    }
-
-    private void scrapePlaylistDetails(Playlist playlist, Page page) {
-        logger.info("Scraping details for playlist: {}", playlist.title());
-        try {
-            page.navigate(playlist.url());
-            page.setDefaultTimeout(30_000);
-            page.setDefaultNavigationTimeout(30_000);
-            // Wait for playlist page to load
-            page.waitForLoadState(LoadState.NETWORKIDLE);
-            safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
-            // Accept cookies if prompted
-            Locator acceptCookies = page.locator("text=Accept Cookies");
-            if (acceptCookies != null && acceptCookies.count() > 0) {
-                safeClick(acceptCookies, "Accept Cookies button");
-                safeWait(page, DEFAULT_NAVIGATION_WAIT_MS);
-            }
-            // Extract playlist details
-            String title = safeInnerText(page.locator("h1"));
-            String description = safeInnerText(page.locator("div[data-testid='description']"));
-            String imageUrl = safeAttr(page.locator("img[data-testid='playlist-image']"), "src");
-            // Update playlist object with details
-            playlist.setTitle(title);
-            playlist.setDescription(description);
-            playlist.setImageUrl(imageUrl);
-            logger.info("Playlist details: {} - {} - {}", title, description, imageUrl);
-        } catch (Exception e) {
-            logger.warn("Error scraping playlist details: {}", e.getMessage());
-        }
     }
 
     // --- Songs ---
@@ -393,7 +375,7 @@ public class ScraperService implements ScraperServiceInterface {
         MetadataCrossChecker.CrossCheckResult explicitRes = extractExplicitCrossChecked(songElement);
 
         String url = safeAttr(songElement.locator("a[data-test='track-title']"), "href");
-        String trackAsin = extractTrackAsinFromUrl(url);
+        String trackAsin = extractTrackAsin(songElement, url);
 
         // Aggregate confidence scores
         double confidenceScore = (titleRes.confidenceScore + artistRes.confidenceScore + albumRes.confidenceScore + durationRes.confidenceScore + imageRes.confidenceScore + trackNumRes.confidenceScore + explicitRes.confidenceScore) / 7.0;
@@ -462,22 +444,50 @@ public class ScraperService implements ScraperServiceInterface {
     }
 
     // --- URL and ASIN extraction ---
-    private static String extractTrackAsinFromUrl(String url) {
-        if (url == null || url.isBlank()) return "";
-        int idx = url.indexOf("trackAsin=");
-        if (idx >= 0) {
-            int start = idx + "trackAsin=".length();
-            int end = url.indexOf('&', start);
-            if (end < 0) end = url.length();
-            return url.substring(start, end).trim();
+    /**
+     * Robustly extracts track ASIN from URL or element attributes.
+     * Handles multiple URL patterns and attribute fallbacks.
+     */
+    private static String extractTrackAsin(Locator element, String url) {
+        if (url != null && !url.isBlank()) {
+            // Regex for trackAsin in query or path
+            java.util.regex.Pattern[] patterns = new java.util.regex.Pattern[] {
+                java.util.regex.Pattern.compile("[?&]trackAsin=([A-Z0-9]{10})", java.util.regex.Pattern.CASE_INSENSITIVE),
+                java.util.regex.Pattern.compile("/track/([A-Z0-9]{10})", java.util.regex.Pattern.CASE_INSENSITIVE),
+                java.util.regex.Pattern.compile("/([A-Z0-9]{10})(?:[/?&#]|$)", java.util.regex.Pattern.CASE_INSENSITIVE)
+            };
+            for (java.util.regex.Pattern pattern : patterns) {
+                java.util.regex.Matcher matcher = pattern.matcher(url);
+                if (matcher.find()) {
+                    return matcher.group(1);
+                }
+            }
         }
-        idx = url.toLowerCase(Locale.ROOT).indexOf("?trackasin=");
-        if (idx >= 0) {
-            int start = idx + "?trackasin=".length();
-            int end = url.indexOf('&', start);
-            if (end < 0) end = url.length();
-            return url.substring(start, end).trim();
+        // Fallback: check common ASIN attributes
+        String[] attrNames = {"data-track-asin", "data-asin", "track-asin", "asin"};
+        for (String attr : attrNames) {
+            try {
+                String val = element.getAttribute(attr);
+                if (val != null && val.matches("[A-Z0-9]{10}")) {
+                    return val;
+                }
+            } catch (Exception ignored) {}
         }
+        // Fallback: check child anchor tags
+        try {
+            Locator anchors = element.locator("a");
+            for (int i = 0; i < anchors.count(); i++) {
+                String href = anchors.nth(i).getAttribute("href");
+                if (href != null && href.matches(".*[A-Z0-9]{10}.*")) {
+                    java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("([A-Z0-9]{10})").matcher(href);
+                    if (matcher.find()) {
+                        return matcher.group(1);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        // Log if not found
+        LoggerFactory.getLogger(ScraperService.class).debug("Track ASIN not found for element/url: {} / {}", element, url);
         return "";
     }
 
@@ -559,7 +569,7 @@ public class ScraperService implements ScraperServiceInterface {
             }
         }
         logger.info("Scraped {} songs from playlist: {}", songs.size(), playlistName);
-        return new Playlist(playlistName, songs);
+        return new Playlist(playlistName, playlistUrl, songs);
     }
 
     // Implement required interface methods
