@@ -350,6 +350,23 @@ public class ScraperService implements ScraperServiceInterface {
         Boolean explicitFlag = null;
         String explicitVal = results.get("explicit").value;
         if (explicitVal != null && !explicitVal.isEmpty()) explicitFlag = explicitVal.toLowerCase().contains("explicit");
+        // --- Genre and Release Date extraction ---
+        String genre = "";
+        MetadataField genreField = MetadataFieldRegistry.getField("genre");
+        if (genreField != null && genreField.selectors != null && !genreField.selectors.isEmpty()) {
+            for (String sel : genreField.selectors) {
+                String val = safeInnerText(songElement.locator(sel));
+                if (!val.isEmpty()) { genre = val; break; }
+            }
+        }
+        String releaseDate = "";
+        MetadataField releaseDateField = MetadataFieldRegistry.getField("releaseDate");
+        if (releaseDateField != null && releaseDateField.selectors != null && !releaseDateField.selectors.isEmpty()) {
+            for (String sel : releaseDateField.selectors) {
+                String val = safeInnerText(songElement.locator(sel));
+                if (!val.isEmpty()) { releaseDate = val; break; }
+            }
+        }
         Song rawSong = new Song(
             results.get("title").value,
             results.get("artist").value,
@@ -360,8 +377,8 @@ public class ScraperService implements ScraperServiceInterface {
             playlistPosition,
             explicitFlag,
             results.get("imageUrl").value,
-            results.get("releaseDate").value,
-            results.get("genre").value,
+            releaseDate.isEmpty() ? results.get("releaseDate").value : releaseDate,
+            genre.isEmpty() ? results.get("genre").value : genre,
             trackAsin,
             false,
             confidenceScore,
