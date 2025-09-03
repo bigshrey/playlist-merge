@@ -37,8 +37,12 @@ public final class MetadataFieldRegistry {
         new MetadataField("imageUrl", List.of(
             "img[data-testid='playlist-image']", "img", "[data-src]", "[src]"
         )),
-        new MetadataField("releaseDate", List.of()),
-        new MetadataField("genre", List.of()),
+        new MetadataField("releaseDate", List.of(
+            "span[data-testid='release-date']", ".release-date", "[aria-label*='release']", "[data-release-date]"
+        )),
+        new MetadataField("genre", List.of(
+            "span[data-testid='genre']", ".genre", "[aria-label*='genre']", "[data-genre]"
+        )),
         new MetadataField("trackAsin", List.of()),
         new MetadataField("validated", List.of()),
         new MetadataField("confidenceScore", List.of()),
@@ -70,4 +74,3 @@ public final class MetadataFieldRegistry {
         return null;
     }
 }
-

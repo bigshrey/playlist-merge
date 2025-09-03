@@ -102,3 +102,10 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
 
 
 - **[2025-09-04] Log: README fully updated and validated. All outstanding TODOs, process requirements, and documentation practices are current and aligned with the codebase. Previous out-of-date log removed.**
+
+### 2025-09-04 (continued)
+- Added robust selectors for genre and releaseDate fields in MetadataFieldRegistry.java to enable reliable extraction and future enrichment.
+- Refactored AuthService.java to consolidate manual login workflows: merged displayBrowserForManualLogin and waitForUserToContinue into handleManualLogin, which now includes robust error handling for browser closure, network issues, and user abort. Legacy methods are marked as deprecated, and callback extensibility is supported.
+- Updated documentation and comments in AuthService and MetadataFieldRegistry to reflect these changes.
+- Validated all affected files for errors and documentation consistency.
+- Outstanding TODOs: Review all documentation and comments for consistency with the latest implementation. Continue to improve manual login extensibility and error handling as needed.

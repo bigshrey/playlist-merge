@@ -240,8 +240,9 @@ public final class AuthService implements AuthServiceInterface {
     }
 
     /**
-     * Robust manual login workflow: prompts user, waits for completion, and handles browser closure, network errors, and user abort.
+     * Consolidated manual login workflow: prompts user, waits for completion, and handles browser closure, network errors, and user abort.
      * Optionally accepts a Runnable callback for extensibility.
+     * This replaces displayBrowserForManualLogin and waitForUserToContinue.
      * @param page Playwright page instance
      * @param onComplete Optional callback to run after successful manual login (may be null)
      */
@@ -297,6 +298,26 @@ public final class AuthService implements AuthServiceInterface {
     @Deprecated
     public void displayBrowserForManualLogin(Page page) {
         handleManualLogin(page, null);
+    }
+
+    /**
+     * Deprecated: manual login confirmation is now handled by handleManualLogin.
+     */
+    @Deprecated
+    public void waitForUserToContinue() {
+        logger.info("Manual login confirmation is now handled by handleManualLogin. This method is deprecated.");
+        System.out.println("Press Enter to continue...");
+        try {
+            int input = System.in.read();
+            if (input == -1) {
+                logger.warn("No input detected, proceeding.");
+            } else {
+                logger.info("Input received, proceeding.");
+                logger.debug("User pressed Enter (input={})", input);
+            }
+        } catch (IOException e) {
+            logger.error("Error waiting for user input: {}", e.getMessage());
+        }
     }
 
     /**
@@ -359,27 +380,6 @@ public final class AuthService implements AuthServiceInterface {
         logger.warn("waitForAuthUi timed out after {}ms (selectors: {})", maxWaitMs, combined);
     }
 
-    /**
-     * Waits for user confirmation after manual sign-in.
-     * Prompts user and logs all input and error cases for agentic traceability.
-     * @see #displayBrowserForManualLogin(Page) for related manual login workflow
-     */
-    public void waitForUserToContinue() {
-        logger.info("After you finish signing in, press Enter here to continue scraping.");
-        logger.debug("Prompting user for manual sign-in confirmation (waitForUserToContinue)");
-        try {
-            System.out.println("Press Enter to continue...");
-            int input = System.in.read();
-            if (input == -1) {
-                logger.warn("No input detected, proceeding.");
-            } else {
-                logger.info("Input received, proceeding.");
-                logger.debug("User pressed Enter (input={})", input);
-            }
-        } catch (IOException e) {
-            logger.error("Error waiting for user input: {}", e.getMessage());
-        }
-    }
 
     /**
      * Checks if the user is authenticated on the page by looking for valid session cookies and profile elements.
