@@ -56,7 +56,8 @@ public class PostgresService implements PostgresServiceInterface {
                 "playlist_id INTEGER REFERENCES playlists(id), " +
                 "title TEXT, artist TEXT, album TEXT, url TEXT, duration TEXT, " +
                 "track_number INTEGER, playlist_position INTEGER, explicit BOOLEAN, " +
-                "image_url TEXT, release_date TEXT, genre TEXT" +
+                "image_url TEXT, release_date TEXT, genre TEXT, " +
+                "track_asin TEXT, validated BOOLEAN, confidence_score DOUBLE PRECISION, source_details JSONB" +
                 ")";
         try (Connection conn = connect(); Statement stmt = conn.createStatement()) {
             stmt.execute(playlistTable);
@@ -104,8 +105,8 @@ public class PostgresService implements PostgresServiceInterface {
             logger.warn("Invalid playlistId or empty song list for DB insert: playlistId={}, songs={}", playlistId, songs == null ? null : songs.size());
             return;
         }
-        String sql = "INSERT INTO songs (playlist_id, title, artist, album, url, duration, track_number, playlist_position, explicit, image_url, release_date, genre) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO songs (playlist_id, title, artist, album, url, duration, track_number, playlist_position, explicit, image_url, release_date, genre, track_asin, validated, confidence_score, source_details) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = connect(); PreparedStatement ps = conn.prepareStatement(sql)) {
             for (Song song : songs) {
                 ps.setInt(1, playlistId);
@@ -120,12 +121,18 @@ public class PostgresService implements PostgresServiceInterface {
                 ps.setString(10, song.imageUrl());
                 ps.setString(11, song.releaseDate());
                 ps.setString(12, song.genre());
+                ps.setString(13, song.trackAsin());
+                ps.setBoolean(14, song.validated());
+                ps.setDouble(15, song.confidenceScore());
+                ps.setObject(16, song.sourceDetails() == null ? null : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(song.sourceDetails()), java.sql.Types.OTHER);
                 ps.addBatch();
             }
             ps.executeBatch();
             logger.info("Inserted {} songs for playlist {}.", songs.size(), playlistId);
         } catch (SQLException e) {
             logger.error("Error inserting songs: {}", e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error processing song data: {}", e.getMessage());
         }
     }
 

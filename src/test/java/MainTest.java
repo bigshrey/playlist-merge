@@ -22,12 +22,11 @@ public class MainTest {
         String actual = Utils.sanitizeFilename(input);
         Assertions.assertEquals(expected, actual);
     }
-/*
     @Test
     public void testWriteSongsToCSV() throws IOException, CsvException {
         List<Song> songs = Arrays.asList(
-            new Song("Title1", "Artist1", "Album1", "URL1"),
-            new Song("Title2", "Artist2", "Album2", "URL2")
+            new Song("Title1", "Artist1", "Album1", "URL1", null, null, null, null, null, null, null, null, false, 1.0, java.util.Map.of()),
+            new Song("Title2", "Artist2", "Album2", "URL2", null, null, null, null, null, null, null, null, false, 1.0, java.util.Map.of())
         );
         String filename = "test_songs.csv";
         CsvService csvService = new CsvService();
@@ -42,7 +41,6 @@ public class MainTest {
 
         Files.deleteIfExists(Path.of(filename));
     }
-*/
     @Test
     public void testRetryPlaywrightActionSuccessAfterRetries() {
         final int[] attempts = {0};

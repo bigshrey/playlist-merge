@@ -46,7 +46,7 @@ public class CsvService implements CsvServiceInterface {
         }
         try (CSVWriter writer = new CSVWriter(new FileWriter(filename))) {
             writer.writeNext(new String[]{
-                "Title", "Artist", "Album", "URL", "Duration", "TrackNumber", "PlaylistPosition", "Explicit", "ImageURL", "ReleaseDate", "Genre"
+                "Title", "Artist", "Album", "URL", "Duration", "TrackNumber", "PlaylistPosition", "Explicit", "ImageURL", "ReleaseDate", "Genre", "TrackASIN", "Validated", "ConfidenceScore", "SourceDetails"
             });
             for (Song song : songs) {
                 writer.writeNext(new String[]{
@@ -60,7 +60,11 @@ public class CsvService implements CsvServiceInterface {
                     song.explicit() == null ? "" : song.explicit().toString(),
                     safe(song.imageUrl()),
                     safe(song.releaseDate()),
-                    safe(song.genre())
+                    safe(song.genre()),
+                    safe(song.trackAsin()),
+                    Boolean.toString(song.validated()),
+                    Double.toString(song.confidenceScore()),
+                    song.sourceDetails() == null ? "" : new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(song.sourceDetails())
                 });
             }
         }

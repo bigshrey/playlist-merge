@@ -1,5 +1,7 @@
 package com.amazonmusic.scraper;
 
+import java.util.Map;
+
 /**
  * Immutable record representing a song in an Amazon Music playlist.
  * @param title The title of the song
@@ -13,6 +15,10 @@ package com.amazonmusic.scraper;
  * @param imageUrl The URL of the song's cover image
  * @param releaseDate The release date of the song
  * @param genre The genre classification of the song
+ * @param trackAsin The ASIN identifier for the track
+ * @param validated Whether the song metadata has been validated
+ * @param confidenceScore Confidence score for metadata extraction
+ * @param sourceDetails Provenance/source details for each field
  */
 public record Song(
     String title,
@@ -25,5 +31,9 @@ public record Song(
     Boolean explicit,
     String imageUrl,
     String releaseDate,
-    String genre
+    String genre,
+    String trackAsin,
+    boolean validated,
+    double confidenceScore,
+    Map<String, String> sourceDetails
 ) {}

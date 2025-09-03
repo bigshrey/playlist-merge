@@ -89,21 +89,13 @@ public class Main {
     }
 
     /**
-     * Scrapes playlists and exports songs to CSV and database.
-     * @param page Playwright page instance
-     * @param postgresService PostgresService instance for database operations
-     * @param scraperService Scraper service for playlist and song extraction
-     * @param csvService CSV service for exporting songs to CSV files
+     * Scrapes playlists and exports songs to CSV and database using robust, modular logic.
      */
     private static void scrapeAndExportPlaylists(Page page, PostgresServiceInterface postgresService, ScraperServiceInterface scraperService, CsvServiceInterface csvService) {
-        // Navigate using ScraperService which contains robust and maintained navigation heuristics
+        // Navigate to library playlists using robust selectors and lazy waits
         scraperService.goToLibraryPlaylists(page);
-
-        // Give the UI a chance to load playlist tiles; prefer network idle before querying
-        try {
-            page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE, new Page.WaitForLoadStateOptions().setTimeout(5_000));
-            page.waitForTimeout(800);
-        } catch (Exception ignored) {}
+        Utils.retryPlaywrightAction(() -> { page.waitForLoadState(com.microsoft.playwright.options.LoadState.NETWORKIDLE); return true; }, 2, "wait for network idle");
+        page.waitForTimeout(800);
 
         var playlists = scraperService.scrapePlaylistLinks(page);
         if (playlists == null || playlists.isEmpty()) {
@@ -119,44 +111,18 @@ public class Main {
             return;
         }
 
-        // TEMPORARY DEBUG: optionally process only the first playlist to speed up debugging runs
-        String singleTest = System.getProperty("SCRAPER_SINGLE_PLAYLIST_TEST", System.getenv().getOrDefault("SCRAPER_SINGLE_PLAYLIST_TEST", "false"));
-        if (Boolean.parseBoolean(singleTest) && !playlists.isEmpty()) {
-            var testPlaylist = playlists.get(0);
-            logger.info("Testing with single playlist: {}", testPlaylist.get("name"));
-            try {
-                var pl = scraperService.scrapePlaylist(page, testPlaylist.get("url"));
-                var safeName = Utils.sanitizeFilename(testPlaylist.get("name"));
-                if (!pl.songs().isEmpty()) {
-                    try {
-                        csvService.writeSongsToCSV(pl.songs(), safeName + ".csv");
-                    } catch (IOException e) {
-                        logger.error("Failed to write playlist CSV '{}': {}", safeName, e.getMessage());
-                    }
-                    int playlistId = postgresService.insertPlaylist(testPlaylist.get("name"), testPlaylist.get("url"));
-                    if (playlistId > 0) {
-                        try { postgresService.insertSongs(playlistId, pl.songs()); } catch (Exception e) { logger.error("Failed to insert songs into DB: {}", e.getMessage()); }
-                    }
-                } else {
-                    logger.warn("Test playlist '{}' returned no songs.", testPlaylist.get("name"));
-                }
-            } catch (Exception e) {
-                logger.error("Error scraping test playlist '{}': {}", testPlaylist.get("url"), e.getMessage());
-            }
-            return; // exit after single-playlist test when enabled
-        }
-
+        // Modular playlist scraping loop
         var allSongs = new ArrayList<Song>();
         for (var playlist : playlists) {
-            var playlistName = playlist.get("name");
-            var playlistUrl = playlist.get("url");
+            String playlistName = playlist.get("name");
+            String playlistUrl = playlist.get("url");
             if (playlistName == null || playlistName.trim().isEmpty()) {
                 logger.warn("Skipping playlist with invalid name: {}", playlistUrl);
                 continue;
             }
             try {
-                var pl = scraperService.scrapePlaylist(page, playlistUrl);
-                var safeName = Utils.sanitizeFilename(playlistName);
+                Playlist pl = scraperService.scrapePlaylist(page, playlistUrl); // uses intelligent logic
+                String safeName = Utils.sanitizeFilename(playlistName);
                 if (pl.songs().isEmpty()) {
                     logger.warn("Playlist '{}' has no songs, skipping CSV export and DB insert.", playlistName);
                     continue;
