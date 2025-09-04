@@ -73,19 +73,6 @@ public class ScraperService implements ScraperServiceInterface {
 
     private static final int DEFAULT_NAVIGATION_WAIT_MS = 1000;
 
-    private static final String[] PLAYLIST_TILE_SELECTORS = new String[]{
-        "[data-test='playlist']",
-        "[data-testid='playlist']",
-        "a[href*='/playlist']",
-        "music-vertical-item",
-        ".music-image-row",
-        "music-horizontal-item"
-    };
-
-    private static String joinSelectors(String[] arr) {
-        return String.join(", ", arr);
-    }
-
     // --- Remove CSV / known title helpers ---
     // All CSV-based validation and enrichment logic is removed.
     // Only site data and keywords are used for validation and enrichment.
@@ -176,16 +163,22 @@ public class ScraperService implements ScraperServiceInterface {
                     page.setDefaultTimeout(30_000);
                     page.setDefaultNavigationTimeout(30_000);
                     // Wait for initial load and playlist tiles
-                    waitForPageReady(page, joinSelectors(PLAYLIST_TILE_SELECTORS), 15000);
+                    waitForPageReady(page, joinSelectors(getPlaylistTileSelectors()), 15000);
                     // Accept cookies if prompted
                     Locator acceptCookies = page.locator("text=Accept Cookies");
                     if (acceptCookies != null && acceptCookies.count() > 0) {
                         safeClick(acceptCookies, "Accept Cookies button");
-                        waitForPageReady(page, joinSelectors(PLAYLIST_TILE_SELECTORS), 5000);
+                        waitForPageReady(page, joinSelectors(getPlaylistTileSelectors()), 5000);
                     }
                     // Find all playlist links on the page
-                    Locator playlistLinks = page.locator(joinSelectors(PLAYLIST_TILE_SELECTORS));
-                    if (playlistLinks != null && playlistLinks.count() > 0) {
+                    String playlistSelector = joinSelectors(getPlaylistTileSelectors());
+                    if (playlistSelector.isEmpty()) {
+                        logger.warn("No playlist selectors found in registry. Locator will match nothing.");
+                        // Optionally, fallback to a legacy selector
+                        playlistSelector = "[data-test='playlist'], [data-testid='playlist'], a[href*='/playlist']";
+                    }
+                    Locator playlistLinks = page.locator(playlistSelector);
+                    if (playlistLinks.count() > 0) {
                         int count = 0;
                         for (int i = 0; i < playlistLinks.count(); i++) {
                             try {
@@ -264,23 +257,31 @@ public class ScraperService implements ScraperServiceInterface {
                     }
                     // Find all song elements on the page
                     Locator songElements = findSongElements(page);
-                    if (songElements != null && songElements.count() > 0) {
-                        int count = 0;
-                        for (int i = 0; i < songElements.count(); i++) {
+                    int totalElements = songElements.count();
+                    int validCount = 0;
+                    if (totalElements > 0) {
+                        for (int i = 0; i < totalElements; i++) {
                             try {
                                 Locator songElement = songElements.nth(i);
-                                Song song = processSongCandidate(songElement, i + 1);
-                                if (song != null) {
-                                    songs.add(song);
-                                    count++;
+                                String title = safeInnerText(songElement.locator("a[data-test='track-title'], .track-title, [data-testid*='title'], .title, h2, h3, [aria-label], [alt]"));
+                                String artist = safeInnerText(songElement.locator("a[data-test='track-artist'], .track-artist, [data-testid*='artist'], .artist, h4, h5, [aria-label], [alt]"));
+                                if (!title.isEmpty() || !artist.isEmpty()) {
+                                    Song song = processSongCandidate(songElement, validCount + 1);
+                                    if (song != null) {
+                                        songs.add(song);
+                                        validCount++;
+                                    }
+                                    // Respect the maxSongs limit
+                                    if (maxSongs > 0 && validCount >= maxSongs) {
+                                        break;
+                                    }
                                 }
                             } catch (Exception e) {
                                 logger.debug("Error processing song element (ignored): {}", e.getMessage());
                             }
-                            // Respect the maxSongs limit
-                            if (maxSongs > 0 && count >= maxSongs) {
-                                break;
-                            }
+                        }
+                        if (validCount == 0) {
+                            logger.warn("Found {} song elements, but none had valid title or artist. Check selectors and page structure.", totalElements);
                         }
                     }
                 } catch (Exception e) {
@@ -326,13 +327,23 @@ public class ScraperService implements ScraperServiceInterface {
 
     // Helper to find song elements using registry-driven selectors
     private Locator findSongElements(Page page) {
-        MetadataField songField = MetadataFieldRegistry.getField("title"); // Use 'title' field selectors for song rows
-        if (songField != null && !songField.selectors.isEmpty()) {
-            String selector = String.join(", ", songField.selectors);
-            return page.locator(selector);
+        MetadataField songRowField = MetadataFieldRegistry.getField("songRow"); // Use 'songRow' field selectors for song rows
+        if (songRowField != null && !songRowField.selectors.isEmpty()) {
+            String selector = String.join(", ", songRowField.selectors);
+            Locator loc = page.locator(selector);
+            logger.info("Trying songRow selector: {} (found {} elements)", selector, loc.count());
+            if (loc.count() > 0) return loc;
+            // Fallback: try previous main selectors for title anchors (legacy)
+            String fallback = "a[data-test='track-title'], .track-title, [data-testid*='title']";
+            Locator fallbackLoc = page.locator(fallback);
+            logger.info("Trying fallback song selector: {} (found {} elements)", fallback, fallbackLoc.count());
+            return fallbackLoc;
         }
-        // Fallback: try common row selectors
-        return page.locator("[data-test='track-title'], .track-title, [data-testid*='title']");
+        // Fallback: try previous main selectors for title anchors (legacy)
+        String fallback = "a[data-test='track-title'], .track-title, [data-testid*='title']";
+        Locator fallbackLoc = page.locator(fallback);
+        logger.info("Trying fallback song selector: {} (found {} elements)", fallback, fallbackLoc.count());
+        return fallbackLoc;
     }
 
     private MetadataCrossChecker.CrossCheckResult extractFieldCrossChecked(Locator element, MetadataField field) {
@@ -374,6 +385,43 @@ public class ScraperService implements ScraperServiceInterface {
                 String val = safeInnerText(songElement.locator(sel));
                 if (!val.isEmpty()) { releaseDate = val; break; }
             }
+        }
+        // Log all extracted field values for diagnosis
+        logger.info("Extracted song candidate at position {}: title='{}', artist='{}', album='{}', url='{}', duration='{}', trackNumber='{}', explicit='{}', imageUrl='{}', releaseDate='{}', genre='{}', trackAsin='{}'", playlistPosition,
+            results.get("title").value,
+            results.get("artist").value,
+            results.get("album").value,
+            url,
+            results.get("duration").value,
+            trackNumber,
+            explicitFlag,
+            results.get("imageUrl").value,
+            releaseDate.isEmpty() ? results.get("releaseDate").value : releaseDate,
+            genre.isEmpty() ? results.get("genre").value : genre,
+            trackAsin
+        );
+        // If both title and artist are empty, skip MusicBrainz validation and log warning
+        if ((results.get("title").value == null || results.get("title").value.isEmpty()) &&
+            (results.get("artist").value == null || results.get("artist").value.isEmpty())) {
+            logger.warn("Skipping MusicBrainz validation for empty song candidate at position {}.", playlistPosition);
+            return new Song(
+                results.get("title").value,
+                results.get("artist").value,
+                results.get("album").value,
+                url,
+                results.get("duration").value,
+                trackNumber,
+                playlistPosition,
+                explicitFlag,
+                results.get("imageUrl").value,
+                releaseDate.isEmpty() ? results.get("releaseDate").value : releaseDate,
+                genre.isEmpty() ? results.get("genre").value : genre,
+                trackAsin,
+                false,
+                confidenceScore,
+                sourceDetails,
+                fieldValidationStatus
+            );
         }
         Song rawSong = new Song(
             results.get("title").value,
@@ -548,6 +596,16 @@ public class ScraperService implements ScraperServiceInterface {
             }
         } else {
             logger.warn("No song elements found for playlist: {}", playlistUrl);
+            // Save page HTML and screenshot for diagnosis
+            try {
+                String html = page.content();
+                java.nio.file.Files.createDirectories(java.nio.file.Paths.get("scraped-data"));
+                java.nio.file.Files.writeString(java.nio.file.Paths.get("scraped-data", "playlist-debug-" + System.currentTimeMillis() + ".html"), html);
+                page.screenshot(new Page.ScreenshotOptions().setPath(java.nio.file.Paths.get("scraped-data", "playlist-debug-" + System.currentTimeMillis() + ".png")));
+                logger.info("Saved playlist debug HTML and screenshot for playlist: {}", playlistUrl);
+            } catch (Exception e) {
+                logger.error("Failed to save playlist debug artifacts: {}", e.getMessage());
+            }
         }
         // Persist to database if available
         if (postgresService != null && !songs.isEmpty()) {
@@ -565,7 +623,7 @@ public class ScraperService implements ScraperServiceInterface {
     @Override
     public List<Map<String, String>> scrapePlaylistLinks(Page page) {
         List<Map<String, String>> playlists = new ArrayList<>();
-        Locator playlistLinks = page.locator(joinSelectors(PLAYLIST_TILE_SELECTORS));
+        Locator playlistLinks = page.locator(joinSelectors(getPlaylistTileSelectors()));
         int count = playlistLinks.count();
         for (int i = 0; i < count; i++) {
             Locator link = playlistLinks.nth(i);
@@ -648,6 +706,11 @@ public class ScraperService implements ScraperServiceInterface {
 
     // --- Registry-driven selectors: all field selectors are managed via MetadataFieldRegistry and MetadataField ---
     // Legacy hardcoded selector lists removed; all extraction logic uses MetadataFieldRegistry.getFields() and MetadataField.selectors.
+    // Example usage for playlist tiles:
+    private static List<String> getPlaylistTileSelectors() {
+        MetadataField playlistField = MetadataFieldRegistry.getField("playlist");
+        return playlistField != null ? playlistField.selectors : Collections.emptyList();
+    }
 
     private final MetadataCrossChecker crossChecker = new MetadataCrossChecker();
 
@@ -725,5 +788,9 @@ public class ScraperService implements ScraperServiceInterface {
             }
         }
         return report.toString();
+    }
+
+    private static String joinSelectors(List<String> arr) {
+        return arr == null || arr.isEmpty() ? "" : String.join(", ", arr);
     }
 }

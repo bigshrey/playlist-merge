@@ -14,6 +14,23 @@ public final class MetadataFieldRegistry {
 
     // Registry of all metadata fields and their selectors
     private static final List<MetadataField> FIELDS = List.of(
+        new MetadataField("playlist", List.of(
+            "[data-test='playlist']",
+            "[data-testid='playlist']",
+            "a[href*='/playlist']",
+            "music-vertical-item",
+            ".music-image-row",
+            "music-horizontal-item"
+        )),
+        new MetadataField("songRow", List.of(
+            ".trackListRow",
+            ".track-row",
+            "music-track-row",
+            "div[data-testid='tracklist-row']",
+            "div[data-test='track-row']",
+            "tr[data-testid*='track']",
+            "tr[data-test*='track']"
+        )),
         new MetadataField("title", List.of(
             "a[data-test='track-title']", ".track-title", "[data-testid*='title']", ".title", "h2", "h3", "[aria-label]", "[alt]"
         )),

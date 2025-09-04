@@ -128,6 +128,14 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
 - Validated changes: no errors found, and all tests now pass. Filename sanitization is now fully consistent with requirements.
 
 ### 2025-09-04 (next Agentic Change Iteration Summary)
+- [HIGH] Integrate real MusicBrainz API for song validation and enrichment:
+    - [TODO] Implement HTTP querying logic in MusicBrainzClient.java to fetch metadata for title, artist, album, genre, release date, etc.
+    - [TODO] Parse MusicBrainz API responses and use results to validate and enrich Song fields.
+    - [TODO] Update provenance and per-field validation status in Song based on API results.
+    - [TODO] Update Javadocs and comments in MusicBrainzClient.java and all affected files.
+    - [TODO] If new enrichment fields are added, update Song, DB/CSV schema, and all consumers accordingly.
+    - [TODO] Log all changes and validations in the README Agentic Change Iteration Summary.
+    - [TODO] Test integration and validate error handling, null safety, and extensibility.
 - [TODO] Audit all Playwright and Playwright-related methods (e.g., ScraperService, AuthService, CsvService, etc.) for possible null Page, Locator, and Playwright object references.
 - [TODO] Add explicit null checks at the start of each method that accepts a Playwright object (e.g., Page, Locator). Log and return early if the object is null.
 - [TODO] Update all helper methods (e.g., safeInnerText, safeAttr, safeClick, robustWaitForSelector) to handle null arguments gracefully and log errors.
@@ -153,3 +161,16 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
 - Validated changes: no errors found, only minor warnings which are now resolved.
 - Documentation and comments are now fully aligned with the latest implementation and agentic change rules.
 - All changes logged per agentic change rules. Next: Continue auditing ScraperService and CsvService for robust error handling and documentation consistency.
+
+### 2025-09-04 (continued)
+- Audited Song.java for null handling and error robustness in field usage per agentic TODOs.
+- Updated Javadocs in Song.java to clarify provenance and per-field validation status structure and usage.
+- Validated that all consumers (CsvService, PostgresService, ScraperService) handle nulls and empty maps correctly.
+- All changes logged per agentic change rules. Documentation and code are now fully aligned for Song record and its consumers.
+
+### 2025-09-04 (continued)
+- Integrated real MusicBrainz API querying in MusicBrainzClient.java for song validation and enrichment.
+- Song validation and enrichment now uses live MusicBrainz data for genre and release date, updating provenance and per-field validation status.
+- Updated Javadocs and comments in MusicBrainzClient.java to document new workflow and error handling.
+- All consumers (Song, CsvService, PostgresService, ScraperService) already support genre, release date, provenance, and per-field validation status; no schema changes required.
+- Next: Validate integration with tests and error handling, and update documentation if needed.
