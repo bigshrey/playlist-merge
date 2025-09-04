@@ -7,6 +7,14 @@ import java.util.Map;
 
 /**
  * Interface for scraping operations.
+ * <p>
+ * AGENTIC CHANGE LOG (2025-09-04):
+ * - [IN PROGRESS] Auditing for null checks and error handling in Playwright-related methods per README agentic TODOs.
+ * - [NEXT] Add explicit null checks and log progress after each method edit.
+ * - [NEXT] Update Javadocs after each change to reflect progress and completion.
+ *
+ * AGENTIC TODO: When adding new fields, normalization, or enrichment to Song or metadata, update registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), DB schema (PostgresService), CSV export logic, and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * AGENTIC TODO: If Song.sourceDetails type changes, update all consumers (DB, CSV, reporting, validation) and document interface changes here.
  */
 public interface ScraperServiceInterface {
     /**
@@ -37,4 +45,3 @@ public interface ScraperServiceInterface {
      */
     boolean isSignedIn(Page page);
 }
-

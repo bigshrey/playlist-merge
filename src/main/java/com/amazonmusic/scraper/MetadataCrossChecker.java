@@ -27,6 +27,9 @@ import java.util.*;
  * TODO: If Amazon Music changes markup, update regexes and add more bracket types as needed. (maintenance)
  * TODO: If new feature/remix patterns appear, add more passes here. (maintenance)
  *
+ * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update registry (MetadataFieldRegistry), normalization logic here, DB schema (PostgresService), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * TODO [AGENTIC]: Ensure all values in provenance map are non-null maps; log inconsistencies and update DB/CSV schema if Song.sourceDetails type changes.
+ *
  * @author Amazon Music Scraper Team
  * @since 1.0
  */
@@ -45,19 +48,49 @@ public class MetadataCrossChecker {
     }
 
     /**
-     * TODO [PRIORITY: MEDIUM][2025-09-04]: Refactored to accept MetadataField for field type inference and normalization.
-     * Next: Move normalization/prioritization logic into MetadataField or a registry for extensibility.
+     * Cross-checks and normalizes metadata field values extracted from a Playwright Locator using all selectors in the MetadataField.
+     * <p>
+     * Error handling:
+     * <ul>
+     *   <li>Explicit null checks for Locator and MetadataField arguments; logs and returns empty result if null.</li>
+     *   <li>Each selector extraction is wrapped in try/catch; logs errors and continues.</li>
+     *   <li>All Playwright-related logic (locator, innerText) is checked for null and count > 0 before use.</li>
+     *   <li>Discrepancies between selector results are logged for traceability.</li>
+     * </ul>
+     * @param element Playwright Locator for the song/row element (may be null)
+     * @param field MetadataField describing the field and its selectors (may be null)
+     * @return CrossCheckResult containing selected value, confidence score, and provenance map
      */
     public CrossCheckResult crossCheckField(Locator element, MetadataField field) {
+        if (element == null) {
+            logger.warn("crossCheckField called with null Locator. Returning empty result.");
+            return new CrossCheckResult("", 0.0, new LinkedHashMap<>());
+        }
+        if (field == null) {
+            logger.warn("crossCheckField called with null MetadataField. Returning empty result.");
+            return new CrossCheckResult("", 0.0, new LinkedHashMap<>());
+        }
         List<String> selectors = field.selectors;
         Map<String, String> results = new LinkedHashMap<>();
         for (String selector : selectors) {
             try {
+                if (selector == null || selector.isBlank()) {
+                    logger.debug("Selector is null or blank for field '{}'. Skipping.", field.fieldName);
+                    continue;
+                }
                 Locator loc = element.locator(selector);
-                String val = (loc != null && loc.count() > 0) ? loc.first().innerText().trim() : "";
+                if (loc == null) {
+                    logger.debug("Locator for selector '{}' is null.", selector);
+                    continue;
+                }
+                int count = 0;
+                try { count = loc.count(); } catch (Exception e) {
+                    logger.debug("Error getting count for locator '{}': {}", selector, e.getMessage());
+                }
+                String val = (count > 0) ? safeInnerText(loc) : "";
                 if (!val.isEmpty()) results.put(selector, val);
             } catch (Exception e) {
-                logger.debug("Selector error for '{}': {}", selector, e.getMessage());
+                logger.warn("Error extracting value for selector '{}': {}", selector, e.getMessage());
             }
         }
         // Field-specific normalization and prioritization
@@ -79,6 +112,28 @@ public class MetadataCrossChecker {
             logger.warn("Selector discrepancy for {}: {}", fieldType, normalizedResults);
         }
         return new CrossCheckResult(selected, confidence, normalizedResults);
+    }
+
+    /**
+     * Safely extracts innerText from a Locator, handling nulls and errors.
+     * @param loc Playwright Locator (may be null)
+     * @return Trimmed innerText or empty string if not available
+     */
+    private String safeInnerText(Locator loc) {
+        if (loc == null) {
+            logger.debug("safeInnerText called with null Locator.");
+            return "";
+        }
+        try {
+            int count = loc.count();
+            if (count > 0) {
+                String s = loc.first().innerText();
+                return s == null ? "" : s.trim();
+            }
+        } catch (Exception e) {
+            logger.debug("safeInnerText error: {}", e.getMessage());
+        }
+        return "";
     }
 
     // Select canonical value based on field type and selector priority

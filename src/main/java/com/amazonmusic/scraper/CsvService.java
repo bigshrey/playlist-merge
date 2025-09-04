@@ -15,6 +15,11 @@ import java.util.List;
 /**
  * Service for exporting song data to CSV files using OpenCSV.
  * <p>
+ * AGENTIC CHANGE LOG (2025-09-04):
+ * - [IN PROGRESS] Auditing for null checks and error handling in Playwright-related methods per README agentic TODOs.
+ * - [NEXT] Add explicit null checks and log progress after each method edit.
+ * - [NEXT] Update Javadocs after each change to reflect progress and completion.
+ *
  * Workflow:
  * <ul>
  *   <li>Exports all Song fields, including provenance ({@code sourceDetails}) and validation status.</li>
@@ -23,6 +28,9 @@ import java.util.List;
  * </ul>
  * <p>
  * Future extensibility: Can be extended to export per-field validation status and enriched metadata.
+ * <p>
+ * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update CSV_FIELDS, registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), DB schema (PostgresService), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * TODO [AGENTIC]: If Song.sourceDetails type changes, update CSV export logic and all consumers (DB, reporting, validation).
  *
  * @author Amazon Music Scraper Team
  * @since 1.0

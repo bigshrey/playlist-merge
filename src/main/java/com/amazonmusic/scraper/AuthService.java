@@ -19,7 +19,12 @@ import java.util.List;
 /**
  * Implementation of authentication services for Amazon Music scraping.
  * Handles browser context management, session persistence, and automated sign-in workflows.
- * 
+ * <p>
+ * AGENTIC CHANGE LOG (2025-09-04):
+ * - [IN PROGRESS] Auditing for null checks and error handling in Playwright-related methods per README agentic TODOs.
+ * - [NEXT] Add explicit null checks and log progress after each method edit.
+ * - [NEXT] Update Javadocs after each change to reflect progress and completion.
+ *
  * @author Amazon Music Scraper Team
  * @since 1.0
  */
@@ -160,6 +165,10 @@ public final class AuthService implements AuthServiceInterface {
      * prompting the user to complete manual login in the visible browser window.
      */
     public void automateSignIn(Page page) {
+        if (page == null) {
+            logger.error("automateSignIn called with null Page. Aborting sign-in workflow.");
+            return;
+        }
         try {
             page.waitForTimeout(500); // Let initial scripts run
             if (page.isClosed()) {
@@ -247,6 +256,10 @@ public final class AuthService implements AuthServiceInterface {
      * @param onComplete Optional callback to run after successful manual login (may be null)
      */
     public void handleManualLogin(Page page, Runnable onComplete) {
+        if (page == null) {
+            logger.error("handleManualLogin called with null Page. Aborting manual login workflow.");
+            return;
+        }
         try {
             logger.info("Please complete manual login in the opened browser window.");
             logger.info("Current page URL: {}", page.url());
@@ -325,6 +338,10 @@ public final class AuthService implements AuthServiceInterface {
      * Logs all cookies after login for traceability and agentic context.
      */
     public void printSessionCookies(BrowserContext context) {
+        if (context == null) {
+            logger.warn("printSessionCookies called with null BrowserContext. Aborting.");
+            return;
+        }
         try {
             var cookies = context.cookies();
             logger.info("Session cookies after login:");
@@ -344,6 +361,10 @@ public final class AuthService implements AuthServiceInterface {
      * @see #isAuthenticated(Page) for combined DOM/cookie check logic
      */
     public void waitForAuthUi(Page page) {
+        if (page == null) {
+            logger.error("waitForAuthUi called with null Page. Aborting auth UI wait.");
+            return;
+        }
         long maxWaitMs = Long.parseLong(System.getenv().getOrDefault("SCRAPER_AUTH_WAIT_MS", "10000"));
         long deadline = System.currentTimeMillis() + maxWaitMs;
         int poll = 250;
@@ -368,7 +389,7 @@ public final class AuthService implements AuthServiceInterface {
                 logger.warn("Exception during selector polling: {}", e.getMessage());
             }
             try {
-                page.waitForSelector(combined, new Page.WaitForSelectorOptions().setTimeout((double)poll));
+                page.waitForSelector(combined, new Page.WaitForSelectorOptions().setTimeout(poll));
                 logger.debug("waitForSelector succeeded for: {}", combined);
                 return;
             } catch (PlaywrightException e) {
@@ -383,8 +404,14 @@ public final class AuthService implements AuthServiceInterface {
 
     /**
      * Checks if the user is authenticated on the page by looking for valid session cookies and profile elements.
-     * Combines DOM-based detection (profile/account elements, sign-in button) with session cookie validation.
-     * Logs all checks, decisions, and ambiguous cases for agentic traceability.
+     * <p>
+     * Error handling:
+     * <ul>
+     *   <li>Explicit null check for Page argument; logs and returns false if null.</li>
+     *   <li>Session cookie extraction is wrapped in try/catch; logs errors and continues.</li>
+     *   <li>All Playwright-related logic (locator, cookies) is checked for null before use.</li>
+     *   <li>Logs all checks, decisions, and ambiguous cases for agentic traceability.</li>
+     * </ul>
      * @param page Playwright page instance
      * @return true if authenticated, false otherwise
      * @see #waitForAuthUi(Page) for UI-based detection logic
@@ -402,7 +429,7 @@ public final class AuthService implements AuthServiceInterface {
             logger.debug("Checking session cookies: {}", cookies);
             for (Cookie cookie : cookies) {
                 logger.debug("Cookie found: {} (expires={})", cookie.name, cookie.expires);
-                if (authCookieNames.contains(cookie.name) && (cookie.expires == 0 || cookie.expires > (System.currentTimeMillis() / 1000))) {
+                if (authCookieNames.contains(cookie.name) && (cookie.expires == 0L || cookie.expires > (System.currentTimeMillis() / 1000L))) {
                     hasAuthCookie = true;
                     logger.debug("Valid auth cookie detected: {}", cookie.name);
                     break;
@@ -413,10 +440,20 @@ public final class AuthService implements AuthServiceInterface {
         }
         // Check for profile/account DOM elements
         String profileSelector = "[aria-label='Account'], [data-test-id='profile-menu'], img[alt*='profile'], img[alt*='avatar'], button:has([data-icon='profile'])";
-        Locator profile = page.locator(profileSelector);
+        Locator profile = null;
+        try {
+            profile = page.locator(profileSelector);
+        } catch (Exception e) {
+            logger.warn("Error locating profile element: {}", e.getMessage());
+        }
         boolean hasProfileElement = profile != null && profile.count() > 0;
         logger.debug("Profile element check: selector={}, found={}", profileSelector, hasProfileElement);
-        Locator signInBtn = page.getByText("Sign in", new Page.GetByTextOptions().setExact(false));
+        Locator signInBtn = null;
+        try {
+            signInBtn = page.getByText("Sign in", new Page.GetByTextOptions().setExact(false));
+        } catch (Exception e) {
+            logger.warn("Error locating sign-in button: {}", e.getMessage());
+        }
         boolean hasSignInButton = signInBtn != null && signInBtn.count() > 0;
         logger.debug("Sign-in button check: found={}", hasSignInButton);
         // Decision logic

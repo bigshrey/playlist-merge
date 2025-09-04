@@ -11,6 +11,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Service for interacting with the PostgreSQL database for playlists and songs.
  * <p>
+ * AGENTIC CHANGE LOG (2025-09-04):
+ * - [IN PROGRESS] Auditing for null checks and error handling in Playwright-related methods per README agentic TODOs.
+ * - [NEXT] Add explicit null checks and log progress after each method edit.
+ * - [NEXT] Update Javadocs after each change to reflect progress and completion.
+ *
  * Workflow:
  * <ul>
  *   <li>Imports all Song fields, including provenance ({@code sourceDetails}) and validation status.</li>
@@ -19,6 +24,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * </ul>
  * <p>
  * Future extensibility: Can be extended to import per-field validation status and enriched metadata.
+ *
+ * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update DB_FIELDS, DB schema, registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * TODO [AGENTIC]: If Song.sourceDetails type changes, update DB schema and all consumers (CSV, reporting, validation).
  *
  * @author Amazon Music Scraper Team
  * @since 1.0

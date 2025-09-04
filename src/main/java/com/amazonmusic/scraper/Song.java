@@ -20,6 +20,10 @@ import java.util.Map;
  * <p>
  * Future extensibility: Per-field validation status can be further extended for granular tracking.
  * <p>
+ * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), DB schema (PostgresService), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * TODO [AGENTIC]: Per-field validation status can be further extended for granular tracking; update DB/CSV schema and all consumers if structure changes.
+ * TODO [AGENTIC]: Ensure all values in provenance map are non-null maps; log inconsistencies and update DB/CSV schema if Song.sourceDetails type changes.
+ * <p>
  * @author Amazon Music Scraper Team
  * @since 1.0
  */

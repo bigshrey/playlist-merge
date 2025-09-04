@@ -16,6 +16,9 @@ import java.util.Map;
  * <p>
  * Future extensibility: Can be extended to support per-field validation status and integration with other metadata sources.
  *
+ * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), DB schema (PostgresService), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * TODO [AGENTIC]: If new enrichment fields are added, update Song, DB/CSV schema, and all consumers accordingly.
+ *
  * @author Amazon Music Scraper Team
  * @since 1.0
  */

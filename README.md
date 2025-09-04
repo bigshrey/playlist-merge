@@ -126,3 +126,30 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
 - Refactored Utils.sanitizeFilename to replace each invalid character or whitespace with a single underscore, matching the test expectation and ensuring robust, predictable output.
 - Updated Javadoc for sanitizeFilename to clarify per-character replacement behavior.
 - Validated changes: no errors found, and all tests now pass. Filename sanitization is now fully consistent with requirements.
+
+### 2025-09-04 (next Agentic Change Iteration Summary)
+- [TODO] Audit all Playwright and Playwright-related methods (e.g., ScraperService, AuthService, CsvService, etc.) for possible null Page, Locator, and Playwright object references.
+- [TODO] Add explicit null checks at the start of each method that accepts a Playwright object (e.g., Page, Locator). Log and return early if the object is null.
+- [TODO] Update all helper methods (e.g., safeInnerText, safeAttr, safeClick, robustWaitForSelector) to handle null arguments gracefully and log errors.
+- [TODO] Refactor all Playwright navigation and element interaction logic to catch and log exceptions, including null pointer exceptions, timeouts, and Playwright-specific errors.
+- [TODO] Update Javadocs and inline comments in all affected files to document the new error handling and null check logic.
+- [TODO] Add test cases to validate null handling and error logging for Playwright-related methods.
+- [TODO] Review and update the README Agentic Change Iteration Summary after each code edit, documenting the change and validation.
+- [TODO] Validate and update all related documentation and comments after each change.
+- [TODO] Compare the current implementation against the README log summary and outstanding TODOs, resolving discrepancies immediately.
+
+### 2025-09-04 (continued)
+- Added explicit null checks and error logging to MetadataCrossChecker.crossCheckField and safeInnerText for all Playwright-related logic.
+- Updated Javadocs and inline comments in MetadataCrossChecker.java to document new error handling and null check logic.
+- Validated changes: no errors found in MetadataCrossChecker.java after edit.
+- Documentation and comments are now fully aligned with the latest implementation and agentic change rules.
+- All changes logged per agentic change rules. Next: Continue auditing other Playwright-related methods for robust error handling and documentation consistency.
+
+### 2025-09-04 (continued)
+- Audited AuthService.java for Playwright-related null checks and error handling per agentic TODOs.
+- Added/expanded explicit null checks and error logging in isAuthenticated and related Playwright logic.
+- Updated Javadocs and inline comments to document new error handling and null check logic.
+- Fixed minor warnings: removed redundant double cast in waitForSelector, clarified integer division for cookie expiration, and removed dangling Javadoc comment.
+- Validated changes: no errors found, only minor warnings which are now resolved.
+- Documentation and comments are now fully aligned with the latest implementation and agentic change rules.
+- All changes logged per agentic change rules. Next: Continue auditing ScraperService and CsvService for robust error handling and documentation consistency.

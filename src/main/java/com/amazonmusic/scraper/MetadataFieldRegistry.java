@@ -6,6 +6,8 @@ import java.util.*;
  * Central registry for all metadata fields and their selectors.
  * Provides static access to all fields for extraction, export, and validation.
  * Extensible: add new fields/selectors here and all consumers will use them.
+ *
+ * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update this registry, normalization logic (MetadataCrossChecker), DB schema (PostgresService), and all consumers to maintain consistency across extraction, validation, and export workflows.
  */
 public final class MetadataFieldRegistry {
     private MetadataFieldRegistry() {}

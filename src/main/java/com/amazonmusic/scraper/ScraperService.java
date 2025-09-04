@@ -12,6 +12,11 @@ import java.util.Arrays;
 /**
  * Service for scraping Amazon Music playlists and songs using Playwright.
  * <p>
+ * AGENTIC CHANGE LOG (2025-09-04):
+ * - [IN PROGRESS] Auditing for null checks and error handling in Playwright-related methods per README agentic TODOs.
+ * - [NEXT] Add explicit null checks and log progress after each method edit.
+ * - [NEXT] Update Javadocs after each change to reflect progress and completion.
+ *
  * Workflow:
  * <ul>
  *   <li>Extracts playlist and song metadata from Amazon Music using Playwright.</li>
@@ -26,7 +31,8 @@ import java.util.Arrays;
  * <p>
  * Future extensibility: Supports per-field validation status and additional enrichment sources.
  * <p>
- * All comments and method docs updated to reflect new Song fields and workflow.
+ * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), DB schema (PostgresService), CSV export logic (CsvService), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * TODO [AGENTIC]: If Song.sourceDetails type changes, update extraction logic and all consumers (DB, CSV, reporting, validation).
  *
  * @author Amazon Music Scraper Team
  * @since 1.0
@@ -86,8 +92,12 @@ public class ScraperService implements ScraperServiceInterface {
 
     // --- Helper utilities to reduce repetitive try/catch ---
     private String safeInnerText(Locator l) {
+        if (l == null) {
+            logger.warn("safeInnerText called with null Locator.");
+            return "";
+        }
         try {
-            if (l != null && l.count() > 0) {
+            if (l.count() > 0) {
                 String s = l.first().innerText();
                 return s == null ? "" : s.trim();
             }
@@ -98,8 +108,12 @@ public class ScraperService implements ScraperServiceInterface {
     }
 
     private String safeAttr(Locator l, String attr) {
+        if (l == null) {
+            logger.warn("safeAttr called with null Locator (attr={}).", attr);
+            return "";
+        }
         try {
-            if (l != null && l.count() > 0) {
+            if (l.count() > 0) {
                 String s = l.first().getAttribute(attr);
                 return s == null ? "" : s.trim();
             }
@@ -110,8 +124,12 @@ public class ScraperService implements ScraperServiceInterface {
     }
 
     private boolean safeClick(Locator locator, String description) {
+        if (locator == null) {
+            logger.warn("safeClick called with null Locator (desc={}).", description);
+            return false;
+        }
         try {
-            if (locator != null && locator.count() > 0) {
+            if (locator.count() > 0) {
                 locator.first().scrollIntoViewIfNeeded();
                 locator.first().click();
                 logger.debug("Successfully clicked: {}", description);
@@ -635,6 +653,14 @@ public class ScraperService implements ScraperServiceInterface {
 
 
     private void robustWaitForSelector(Page page, String selector, int timeoutMs, String description) {
+        if (page == null) {
+            logger.warn("robustWaitForSelector called with null Page (desc={}).", description);
+            return;
+        }
+        if (selector == null || selector.isBlank()) {
+            logger.warn("robustWaitForSelector called with invalid selector (desc={}).", description);
+            return;
+        }
         try {
             page.waitForSelector(selector, new Page.WaitForSelectorOptions().setTimeout((double)timeoutMs));
             logger.debug("Waited for selector: {} ({}ms)", selector, timeoutMs);

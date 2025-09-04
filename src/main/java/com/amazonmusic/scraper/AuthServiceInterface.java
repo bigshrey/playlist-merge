@@ -7,6 +7,9 @@ import com.microsoft.playwright.Playwright;
 
 /**
  * Interface for authentication-related operations (Playwright context lifecycle and sign-in workflows).
+ * <p>
+ * AGENTIC TODO: When adding new fields, normalization, or enrichment to Song or metadata, update registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), DB schema (PostgresService), CSV export logic (CsvService), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * AGENTIC TODO: If Song.sourceDetails type changes, update all consumers (DB, CSV, reporting, validation) and document interface changes here.
  */
 public interface AuthServiceInterface {
     /**
