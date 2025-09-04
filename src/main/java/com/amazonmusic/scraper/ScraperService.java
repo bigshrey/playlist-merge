@@ -662,7 +662,7 @@ public class ScraperService implements ScraperServiceInterface {
             return;
         }
         try {
-            page.waitForSelector(selector, new Page.WaitForSelectorOptions().setTimeout((double)timeoutMs));
+            page.waitForSelector(selector, new Page.WaitForSelectorOptions().setTimeout(timeoutMs));
             logger.debug("Waited for selector: {} ({}ms)", selector, timeoutMs);
         } catch (Exception e) {
             logger.warn("Timeout waiting for selector '{}': {}", selector, e.getMessage());
@@ -675,5 +675,55 @@ public class ScraperService implements ScraperServiceInterface {
         if (url.startsWith("http")) return url;
         if (url.startsWith("/")) return "https://music.amazon.com.au" + url;
         return url;
+    }
+
+    /**
+     * Generates a detailed validation report for a list of songs.
+     * Summarizes per-field validation status, confidence scores, provenance discrepancies, and enrichment results.
+     * @param songs List of Song objects to report on
+     * @return Structured report as a String
+     */
+    public String generateValidationReport(List<Song> songs) {
+        if (songs == null || songs.isEmpty()) {
+            return "No songs to report.";
+        }
+        StringBuilder report = new StringBuilder();
+        report.append("Validation Report for ").append(songs.size()).append(" songs\n");
+        for (Song song : songs) {
+            report.append("\nSong: '").append(song.title()).append("' by '").append(song.artist()).append("'\n");
+            report.append("  Confidence Score: ").append(String.format("%.2f", song.confidenceScore())).append("\n");
+            report.append("  Validated: ").append(song.validated()).append("\n");
+            // Per-field validation status
+            if (song.fieldValidationStatus() != null) {
+                report.append("  Field Validation Status:\n");
+                for (Map.Entry<String, Boolean> entry : song.fieldValidationStatus().entrySet()) {
+                    report.append("    - ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+                }
+            }
+            // Provenance discrepancies
+            if (song.sourceDetails() != null) {
+                report.append("  Provenance Discrepancies:\n");
+                for (Map.Entry<String, Object> entry : song.sourceDetails().entrySet()) {
+                    if (entry.getValue() instanceof Map<?,?> map) {
+                        Set<String> uniqueVals = new HashSet<>();
+                        for (Object v : map.values()) if (v != null) uniqueVals.add(v.toString());
+                        if (uniqueVals.size() > 1) {
+                            report.append("    - ").append(entry.getKey()).append(": ").append(uniqueVals).append("\n");
+                        }
+                    }
+                }
+            }
+            // Enrichment results (MusicBrainz)
+            if (song.sourceDetails() != null && song.sourceDetails().containsKey("MusicBrainz")) {
+                report.append("  MusicBrainz Validation: ").append(song.sourceDetails().get("MusicBrainz")).append("\n");
+            }
+            if (song.sourceDetails() != null && song.sourceDetails().containsKey("GenreEnrichment")) {
+                report.append("  Genre Enrichment: ").append(song.sourceDetails().get("GenreEnrichment")).append("\n");
+            }
+            if (song.sourceDetails() != null && song.sourceDetails().containsKey("ReleaseDateEnrichment")) {
+                report.append("  Release Date Enrichment: ").append(song.sourceDetails().get("ReleaseDateEnrichment")).append("\n");
+            }
+        }
+        return report.toString();
     }
 }

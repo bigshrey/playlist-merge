@@ -268,22 +268,49 @@ public final class AuthService implements AuthServiceInterface {
             logger.info("Focus the browser window opened by this tool and complete authentication. After completing login, press Enter here to continue.");
             System.out.println("Press Enter after completing login in the browser...");
             boolean aborted = false;
-            try {
-                int input = System.in.read();
-                if (input == -1) {
-                    logger.warn("No input detected, proceeding anyway.");
-                } else {
-                    logger.info("User signalled to continue after manual login.");
+            boolean interrupted = false;
+            int pollIntervalMs = 1000;
+            long startTime = System.currentTimeMillis();
+            long maxWaitMs = 5 * 60 * 1000; // 5 minutes max for manual login
+            Thread inputThread = new Thread(() -> {
+                try {
+                    System.in.read();
+                } catch (IOException ignored) {}
+            });
+            inputThread.start();
+            while (inputThread.isAlive() && !aborted && !interrupted && (System.currentTimeMillis() - startTime < maxWaitMs)) {
+                try {
+                    Thread.sleep(pollIntervalMs);
+                } catch (InterruptedException ignored) {}
+                if (page.isClosed()) {
+                    logger.error("Browser page was closed during manual login. Aborting workflow.");
+                    interrupted = true;
+                    break;
                 }
-            } catch (IOException e) {
-                logger.error("Error while waiting for user input for manual login: {}", e.getMessage());
-                aborted = true;
-            } catch (Exception e) {
-                logger.error("Unexpected error during manual login handling: {}", e.getMessage());
-                aborted = true;
+                // Optionally, check for network error or navigation failure
+                try {
+                    String url = page.url();
+                    if (url == null || url.isBlank()) {
+                        logger.error("Network error or navigation failure detected during manual login. Aborting workflow.");
+                        interrupted = true;
+                        break;
+                    }
+                } catch (Exception e) {
+                    logger.error("Exception while checking page URL during manual login: {}", e.getMessage());
+                    interrupted = true;
+                    break;
+                }
             }
-            if (page.isClosed()) {
-                logger.error("Browser page was closed during manual login. Aborting workflow.");
+            if (interrupted) {
+                System.out.println("Manual login interrupted (browser closed or network error). Press Enter to retry or Ctrl+C to abort.");
+                logger.warn("Manual login interrupted. Prompting user to retry or abort.");
+                try { System.in.read(); } catch (Exception ignored) {}
+                return;
+            }
+            if (!inputThread.isAlive()) {
+                logger.info("User signalled to continue after manual login.");
+            } else if (System.currentTimeMillis() - startTime >= maxWaitMs) {
+                logger.warn("Manual login timed out after {} ms.", maxWaitMs);
                 aborted = true;
             }
             if (aborted) {
