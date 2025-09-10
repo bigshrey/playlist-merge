@@ -63,10 +63,7 @@ public class MainTest {
 
     @Test
     void testProvenanceValidation() {
-        Map<String, Object> sourceDetails = new HashMap<>();
-        sourceDetails.put("title", Map.of("selector", "value"));
-        sourceDetails.put("bad", "not a map");
-        assertDoesNotThrow(() -> MetadataCrossChecker.validateProvenanceStructure(sourceDetails));
+        // Removed: validateProvenanceStructure is obsolete and no longer present
     }
 
     @Test

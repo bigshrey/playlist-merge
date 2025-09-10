@@ -26,6 +26,7 @@ public final class MetadataFieldRegistry {
             ".trackListRow",
             ".track-row",
             "music-track-row",
+            "music-image-row",
             "div[data-testid='tracklist-row']",
             "div[data-test='track-row']",
             "tr[data-testid*='track']",
@@ -66,7 +67,43 @@ public final class MetadataFieldRegistry {
         new MetadataField("validated", List.of()),
         new MetadataField("confidenceScore", List.of()),
         new MetadataField("sourceDetails", List.of()),
-        new MetadataField("fieldValidationStatus", List.of())
+        new MetadataField("fieldValidationStatus", List.of()),
+        new MetadataField("playlistHeadline", List.of(
+            ".headline", ".headline-main", ".headline-square", "music-detail-header[headline]", "music-detail-header[headline-main]"
+        )),
+        new MetadataField("playlistTertiaryText", List.of(
+            "[tertiary-text]", ".tertiary-text"
+        )),
+        new MetadataField("playlistImage", List.of(
+            "img.music-image", "img[image-src]", "img[data-src]", "img[src]", "music-image[image-src]", "music-image-row img"
+        )),
+        new MetadataField("trackImage", List.of(
+            "img.music-image", "img[image-src]", "img[data-src]", "img[src]", "music-image[image-src]", "music-image-row img"
+        )),
+        new MetadataField("playButton", List.of(
+            "music-playback-button", "button.action-icon-button", "button[aria-label='Play']", "music-button[action-icon-button]"
+        )),
+        new MetadataField("tags", List.of(
+            ".secondary-tags", "[show-border]", ".tags", "span.tags"
+        )),
+        new MetadataField("albumLink", List.of(
+            "a[href*='/albums/']", "music-link[href*='/albums/']"
+        )),
+        new MetadataField("artistLink", List.of(
+            "a[href*='/artists/']", "music-link[href*='/artists/']"
+        )),
+        new MetadataField("ariaLabel", List.of(
+            "[aria-label]"
+        )),
+        new MetadataField("tabIndex", List.of(
+            "[tabindex]"
+        )),
+        new MetadataField("variant", List.of(
+            "[variant]"
+        )),
+        new MetadataField("refinement", List.of(
+            "[refinement]"
+        ))
     );
 
     /**

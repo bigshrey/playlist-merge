@@ -1,22 +1,20 @@
 # Amazon Music Playlist Scraper
 
-## Quick Reference: Agentic Change Rules
+## Agentic Change Rules (Robust Edition)
 **All agents and developers MUST follow these rules for every change. The system will automatically log, validate, and update context and documentation.**
 
-- Plan all changes with explicit, priority-tagged TODOs (PRIORITY: HIGH, MEDIUM, LOW).
-- Validate and update Javadocs and comments after every change.
-- **Log progress in the README after every action, including code changes, refactors, and documentation updates.**
-- **After any code edit action (including minor changes), immediately log the change in the README under the Agentic Change Iteration Summary. No code edit is complete until this log is updated.**
-- **Validate and update all related documentation and comments after each change.**
-- **After every code change, review all affected files for outdated documentation and comments.**
-- **Compare the current implementation against the README log summary and outstanding TODOs.**
-- **Compare the README log summary and outstanding TODOs against the current implementation.**
+- **Plan all changes with explicit, priority-tagged TODOs (PRIORITY: HIGH, MEDIUM, LOW) before making any code edits.**
+- **Every code change must be atomic, traceable, and auditable.**
+- **After any code edit (including minor changes), immediately log the change in the README under the Agentic Change Iteration Summary. No code edit is complete until this log is updated.**
+- **After every code change, review all affected files for outdated documentation, comments, and TODOs. Update them immediately.**
+- **Validate all changes with tests and error checks. Edge cases and error handling must be explicitly tested and logged.**
 - **Update Javadocs, inline comments, and README sections to accurately reflect the latest code and workflow.**
-- **Log the validation and any documentation updates in the README under the Agentic Change Iteration Summary.**
 - **If any discrepancies or outdated documentation are found, resolve them immediately and log the fix.**
-- Update README, inline comments, and TODOs whenever code changes affect workflow, extensibility, or logging.
-- Log all major actions, decisions, and error cases in code and documentation.
-- Never skip these steps—context and documentation must always be up to date.
+- **Compare the current implementation against the README log summary and outstanding TODOs, and vice versa.**
+- **Outstanding TODOs must be actionable, tagged by priority, and reflect the current state of the codebase. Resolved TODOs must be marked and removed.**
+- **All major actions, decisions, and error cases must be logged in code and documentation.**
+- **Every change must be validated with a test run and error check.**
+- **The README is the single source of truth for process, architecture, and change history. Never skip these steps—context and documentation must always be up to date.**
 
 ## Overview
 This project scrapes playlists and songs from Amazon Music, validates and enriches metadata, and exports results to CSV and PostgreSQL. The workflow is robust, modular, and extensible for future metadata sources and validation logic. All major classes, interfaces, and utility methods are documented with Javadocs describing their responsibilities, extensibility points, and error handling.
@@ -27,7 +25,7 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
 3. **Validation & Enrichment**: After extraction, external validation (e.g., via `MusicBrainzClient`) is performed to further validate and enrich metadata. This adjusts confidence scores and sets the `validated` flag in Song objects. Provenance and per-field validation status are updated accordingly.
 4. **Authentication**: Robust authentication detection combines DOM-based checks (profile/account elements, sign-in button) with session cookie validation. Manual login workflow is consolidated and supports callback/event extensibility for automation and error handling.
 5. **Export/Import**: All Song fields, including provenance and validation status, are exported to CSV and imported into PostgreSQL. The schema and export logic are registry-driven for future extensibility.
-6. **Logging & Error Handling**: All major actions, decisions, and error cases are logged for agentic traceability. Utility methods (e.g., in `Utils`) support robust retries and filename sanitization.
+6. **Logging, Error Handling & Testing**: All major actions, decisions, and error cases are logged for agentic traceability. Utility methods (e.g., in `Utils`) support robust retries and filename sanitization. All changes are validated with tests and error checks, including edge cases.
 
 ## Key Classes & Fields
 - **Song**: Immutable record with all metadata fields, plus `trackAsin`, `validated`, `confidenceScore`, `sourceDetails` (provenance), and `fieldValidationStatus` (per-field validation).
@@ -47,16 +45,18 @@ This project scrapes playlists and songs from Amazon Music, validates and enrich
 - Utility methods and error handling are documented for maintainability.
 - Outstanding TODOs are tagged by priority and updated as work progresses. Resolved TODOs are marked and removed as appropriate.
 
-## Logging & Debugging
+## Logging, Debugging & Testing
 - All major actions, decisions, and error/error cases are logged for agentic traceability.
 - Selector discrepancies, provenance, and validation results are logged and can be saved as debug artifacts.
 - Utility methods support robust retries and error handling.
+- All changes are validated with tests and error checks, including edge cases and error handling.
 
 ## Contribution & Maintenance
 - All core classes, interfaces, and utility methods are documented with Javadocs describing their role in the workflow, extensibility points, and error handling.
 - The architecture is modular and supports dependency injection for testing and extension.
 - See class-level Javadocs for details on each component's responsibilities and extensibility points.
 - All TODOs are tagged by priority and updated as work progresses. Resolved TODOs are marked and removed as appropriate.
+- Every change must be validated with a test run and error check, and logged in the README.
 
 ## Agentic Change Iteration Summary
 

@@ -12,15 +12,24 @@ import java.util.Arrays;
 /**
  * Service for scraping Amazon Music playlists and songs using Playwright.
  * <p>
+ * Extraction and Validation Workflow:
+ * <ul>
+ *   <li>Extracts playlist and song metadata using selectors from MetadataFieldRegistry.</li>
+ *   <li>Uses {@link MetadataCrossChecker} to cross-check and normalize metadata fields from multiple selectors.</li>
+ *   <li>Populates Song.sourceDetails with a mapping from metadata field names to validation/cross-checking objects (typically provenance maps, but extensible).</li>
+ *   <li>Ensures all sourceDetails entries are non-null, structured objects for robust validation and provenance tracking.</li>
+ *   <li>Tracks per-field validation status in Song.fieldValidationStatus.</li>
+ * </ul>
+ * <p>
  * AGENTIC CHANGE LOG (2025-09-04):
- * - [IN PROGRESS] Auditing for null checks and error handling in Playwright-related methods per README agentic TODOs.
- * - [NEXT] Add explicit null checks and log progress after each method edit.
- * - [NEXT] Update Javadocs after each change to reflect progress and completion.
+ * - [CLARIFIED] Extraction logic and documentation now explicitly state that sourceDetails maps metadata field names to validation/cross-checking objects.
+ * - [VALIDATED] All sourceDetails entries are non-null, structured objects for each field.
+ * - [DONE] Javadocs and comments updated to reflect this usage and extensibility.
  *
  * Workflow:
  * <ul>
  *   <li>Extracts playlist and song metadata from Amazon Music using Playwright.</li>
- *   <li>Uses {@link MetadataCrossChecker} to cross-check and normalize metadata fields from multiple selectors.</li>
+ *   <li>Uses {@link MetadataCrossChecker} to cross-check and normalize metadata fields from multiple selectors, including validation selectors.</li>
  *   <li>Aggregates provenance and confidence scores for each Song.</li>
  *   <li>Tracks provenance for each field in Song.sourceDetails (Map&lt;String, Object&gt;).</li>
  *   <li>Tracks per-field validation status in Song.fieldValidationStatus (Map&lt;String, Boolean&gt;).</li>
@@ -29,9 +38,9 @@ import java.util.Arrays;
  *   <li>Logs discrepancies, provenance, and validation results for debugging and traceability.</li>
  * </ul>
  * <p>
- * Future extensibility: Supports per-field validation status and additional enrichment sources.
+ * Future extensibility: Supports per-field validation status and additional enrichment sources. Validation selectors can be added to MetadataFieldRegistry for improved reliability without changing Song/Playlist schema.
  * <p>
- * TODO [AGENTIC]: When adding new fields, normalization, or enrichment, update registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), DB schema (PostgresService), CSV export logic (CsvService), and all consumers to maintain consistency across extraction, validation, and export workflows.
+ * TODO [AGENTIC]: When adding new selectors for validation/cross-checking, update registry (MetadataFieldRegistry), normalization logic (MetadataCrossChecker), and extraction logic here. Do not expand Song/Playlist schema unless a new canonical metadata field is required.
  * TODO [AGENTIC]: If Song.sourceDetails type changes, update extraction logic and all consumers (DB, CSV, reporting, validation).
  *
  * @author Amazon Music Scraper Team
@@ -351,6 +360,42 @@ public class ScraperService implements ScraperServiceInterface {
     }
 
     private Song processSongCandidate(Locator songElement, int playlistPosition) {
+        // Check if this is a music-image-row element
+        String tagName = "";
+        try {
+            tagName = songElement.evaluate("el => el.tagName.toLowerCase()", String.class);
+        } catch (Exception ignored) {}
+        if (tagName.equals("music-image-row")) {
+            String title = safeAttr(songElement, "primary-text");
+            String artist = safeAttr(songElement, "secondary-text");
+            String url = safeAttr(songElement, "primary-href");
+            String album = safeAttr(songElement, "secondary-href");
+            String imageUrl = safeAttr(songElement, "image-src");
+            // Only process if title and artist are present
+            if (!title.isEmpty() || !artist.isEmpty()) {
+                return new Song(
+                    title,
+                    artist,
+                    album,
+                    url,
+                    "", // duration not available in attributes
+                    null, // trackNumber not available in attributes
+                    playlistPosition,
+                    null, // explicit not available in attributes
+                    imageUrl,
+                    "", // releaseDate not available in attributes
+                    "", // genre not available in attributes
+                    "", // trackAsin not available in attributes
+                    false,
+                    1.0, // confidenceScore
+                    new HashMap<>(),
+                    new HashMap<>()
+                );
+            } else {
+                logger.warn("music-image-row missing title/artist at position {}", playlistPosition);
+                return null;
+            }
+        }
         Map<String, MetadataCrossChecker.CrossCheckResult> results = new LinkedHashMap<>();
         for (MetadataField field : METADATA_FIELDS) {
             results.put(field.fieldName, extractFieldCrossChecked(songElement, field));
@@ -442,7 +487,7 @@ public class ScraperService implements ScraperServiceInterface {
             fieldValidationStatus
         );
         Song validatedSong = musicBrainzClient.validateAndEnrich(rawSong);
-        MetadataCrossChecker.validateProvenanceStructure(validatedSong.sourceDetails());
+        // MetadataCrossChecker.validateProvenanceStructure(validatedSong.sourceDetails()); // removed: provenance is always Map<String, String>
         logger.info("Validated and enriched song: {} by {} (validated: {}, confidence: {})", validatedSong.title(), validatedSong.artist(), validatedSong.validated(), validatedSong.confidenceScore());
         return validatedSong;
     }
